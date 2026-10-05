@@ -1,0 +1,57 @@
+{
+  "name": "@qwqweeo123/dsh-wallpaper",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Apply a global wallpaper to the whole interface — every surface is re-composited so the image shows through consistently, from the wallhaven.cc marketplace or a local upload.",
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "Wallpaper",
+    "description": "Apply a global wallpaper to the whole interface — every surface is re-composited so the image shows through consistently, from the wallhaven.cc marketplace or a local upload."
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale",
+    "desktop",
+    "vendor",
+    "README.md",
+    "README.zh.md",
+    "THIRD-PARTY.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "wallpaper",
+    "theme",
+    "background",
+    "wallhaven"
+  ],
+  "license": "MIT",
+  "author": "MingXuanZi",
+  "engines": {
+    "node": ">=20"
+  }
+}

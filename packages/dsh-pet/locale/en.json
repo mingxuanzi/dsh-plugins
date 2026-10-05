@@ -1,0 +1,4 @@
+{
+  "title": "Desktop Pet",
+  "description": "A draggable pet in a transparent always-on-top window that can be moved anywhere on screen, reacting to agent state (running / awaiting approval / error), with the codex-pets.net marketplace."
+}

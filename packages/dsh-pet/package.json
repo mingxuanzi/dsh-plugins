@@ -1,0 +1,59 @@
+{
+  "name": "@qwqweeo123/dsh-pet",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A draggable pet that lives in its own transparent, always-on-top window: move it anywhere on screen, watch it react to agent state (running / awaiting approval / error), and browse the codex-pets.net marketplace.",
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "Desktop Pet",
+    "description": "A draggable pet that lives in its own transparent, always-on-top window: move it anywhere on screen, watch it react to agent state (running / awaiting approval / error), and browse the codex-pets.net marketplace."
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale",
+    "desktop",
+    "vendor",
+    "README.md",
+    "README.zh.md",
+    "THIRD-PARTY.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "pet",
+    "desktop-pet",
+    "sprite",
+    "overlay",
+    "codex-pets"
+  ],
+  "license": "MIT",
+  "author": "MingXuanZi",
+  "engines": {
+    "node": ">=20"
+  }
+}
