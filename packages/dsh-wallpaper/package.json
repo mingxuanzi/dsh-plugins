@@ -1,6 +1,6 @@
 {
   "name": "@qwqweeo123/dsh-wallpaper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Apply a global wallpaper to the whole interface — every surface is re-composited so the image shows through consistently, from the wallhaven.cc marketplace or a local upload.",
   "icon": "./icon.svg",

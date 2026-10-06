@@ -18,8 +18,12 @@
  *   absent/`none`/`same-origin`/`same-site`), which cross-site pages cannot
  *   forge.
  *
- * State lives under `$DSH_HOME/wallpaper/` (wallpaper/, config.json) so it
- * survives profile edits and app upgrades.
+ * Every image downloaded from the market is also kept in a small download
+ * library (`library/`), which backs the market's "downloaded" category: those
+ * entries are re-applied from disk, with no second network round trip.
+ *
+ * State lives under `$DSH_HOME/wallpaper/` (wallpaper/, library/, config.json)
+ * so it survives profile edits and app upgrades.
  */
 
 import { createHash } from 'node:crypto'
@@ -79,9 +83,21 @@ async function pathExists(p) {
   }
 }
 
-/** Atomic file write: tmp file in the same directory, fsync, rename. */
+let atomicWriteSeq = 0
+
+/**
+ * Atomic file write: tmp file in the same directory, fsync, rename. The tmp
+ * name has to be unique per call — pid and timestamp alone collide when two
+ * requests write the same target inside one millisecond (two windows
+ * downloading at once), and the loser's rename then finds its tmp already
+ * consumed by the winner.
+ *
+ * The rename is retried briefly because Windows refuses to replace a
+ * destination another writer is swapping in at that instant (EPERM/EACCES/
+ * EEXIST); without the retry one of two simultaneous downloads fails outright.
+ */
 async function writeFileAtomic(target, bytes) {
-  const tmp = `${target}.tmp-${process.pid}-${Date.now()}`
+  const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${++atomicWriteSeq}`
   const handle = await fs.open(tmp, 'w')
   try {
     await handle.write(bytes)
@@ -89,14 +105,25 @@ async function writeFileAtomic(target, bytes) {
   } finally {
     await handle.close()
   }
-  await fs.rename(tmp, target)
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, target)
+      return
+    } catch (error) {
+      const transient = error.code === 'EPERM' || error.code === 'EACCES' || error.code === 'EEXIST'
+      if (!transient || attempt >= 4) {
+        await fs.rm(tmp, { force: true })
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)))
+    }
+  }
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
 const CONFIG_DEFAULTS = {
   wallpaperEnabled: false,
-  wallpaperOpacity: 0.85, // surface alpha over the wallpaper, 0.5..1
   wallpaperSourceUrl: null,
 }
 
@@ -104,13 +131,6 @@ function sanitizeConfig(input) {
   const out = { ...CONFIG_DEFAULTS }
   if (!input || typeof input !== 'object') return out
   if (typeof input.wallpaperEnabled === 'boolean') out.wallpaperEnabled = input.wallpaperEnabled
-  if (
-    typeof input.wallpaperOpacity === 'number' &&
-    input.wallpaperOpacity >= 0.5 &&
-    input.wallpaperOpacity <= 1
-  ) {
-    out.wallpaperOpacity = Math.round(input.wallpaperOpacity * 100) / 100
-  }
   if (typeof input.wallpaperSourceUrl === 'string' && input.wallpaperSourceUrl.length <= 512) {
     out.wallpaperSourceUrl = input.wallpaperSourceUrl
   }
@@ -406,19 +426,11 @@ async function wallpaperMarketDownload(body) {
   const url = typeof body?.url === 'string' ? body.url : ''
   const sourceUrl = typeof body?.sourceUrl === 'string' ? body.sourceUrl : ''
   if (!isWallhavenUrl(url)) throw invalid('Download URL must be a wallhaven.cc URL.')
-  let source
-  try {
-    source = new URL(sourceUrl)
-  } catch {
-    throw invalid('sourceUrl must be a https://wallhaven.cc/w/<id> page URL.')
-  }
-  if (
-    source.protocol !== 'https:' ||
-    source.hostname !== 'wallhaven.cc' ||
-    !source.pathname.startsWith('/w/')
-  ) {
-    throw invalid('sourceUrl must be a https://wallhaven.cc/w/<id> page URL.')
-  }
+  const id = wallhavenIdFromSourceUrl(sourceUrl)
+  if (id === null) throw invalid('sourceUrl must be a https://wallhaven.cc/w/<id> page URL.')
+  // Started alongside the image: a slow thumbnail must never delay the response
+  // for a wallpaper that is already applied by then.
+  const thumbPromise = fetchLibraryThumb(typeof body?.thumbUrl === 'string' ? body.thumbUrl : null)
   const { bytes } = await fetchCapped(url, {
     cap: MAX_WP_BYTES,
     timeoutMs: 300_000,
@@ -427,6 +439,28 @@ async function wallpaperMarketDownload(body) {
   })
   // Byte sniff is the final authority, not the transport content-type.
   const written = await writeWallpaper(bytes)
+  // The library is what the market's 已下载 category lists later. Recording it
+  // is best-effort: the wallpaper the user asked for is already applied, and a
+  // failed copy must not turn that success into an error.
+  try {
+    await recordDownloadedWallpaper({
+      bytes,
+      mime: written.mime,
+      ext: written.ext,
+      id,
+      sourceUrl,
+      thumb: await thumbPromise,
+      meta: {
+        fullUrl: url,
+        thumbUrl: typeof body?.thumbUrl === 'string' ? body.thumbUrl : null,
+        width: body?.width,
+        height: body?.height,
+        category: body?.category,
+      },
+    })
+  } catch (error) {
+    console.warn('dsh-wallpaper: could not record the download', error)
+  }
   return { mime: written.mime }
 }
 
@@ -435,6 +469,401 @@ async function wallpaperVersion() {
   const current = await readWallpaper()
   if (!current) return 'none'
   return createHash('sha1').update(current.bytes).digest('hex').slice(0, 12)
+}
+
+// ─── Download library (the market's "downloaded" category) ──────────────────
+//
+// Applying a market wallpaper used to overwrite the single background file, so
+// the previous download was gone. Every download is now also copied into
+// `library/`, which the market's "downloaded" category lists and re-applies
+// offline:
+//
+//   library/index.json          entry metadata, newest first
+//   library/images/<id>.<ext>   the validated full image
+//   library/thumbs/<id>.<ext>   best-effort marketplace thumbnail
+//
+// Only wallhaven ids name files (see `sanitizeLibraryId`), so a listing entry
+// can never escape these two directories. A download stays until the user
+// deletes it under 已下载 (or the files are removed by hand); `/api/clear`
+// clears the *current* wallpaper only — that is what "remove wallpaper" means.
+
+/** Only these extensions name library files; the value is also the MIME key. */
+const LIBRARY_MIME_BY_EXT = {
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+}
+const LIBRARY_EXTS = Object.keys(LIBRARY_MIME_BY_EXT)
+/** Longer than any wallhaven id, short enough to keep filenames sane. */
+const LIBRARY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+function libraryRoot() {
+  return path.join(storageRoot(), 'library')
+}
+
+function libraryIndexPath() {
+  return path.join(libraryRoot(), 'index.json')
+}
+
+function libraryDir(kind) {
+  return path.join(libraryRoot(), kind)
+}
+
+/**
+ * A filename-safe library id, or null — the only gate before any join(). Ids
+ * are case-folded because NTFS treats `ABC123.png` and `abc123.png` as one
+ * file: without it a crafted request could make two entries share one image.
+ */
+function sanitizeLibraryId(value) {
+  const id = typeof value === 'string' ? value.trim() : ''
+  return LIBRARY_ID_RE.test(id) ? id.toLowerCase() : null
+}
+
+/** The id of a `https://wallhaven.cc/w/<id>` page URL, or null. */
+function wallhavenIdFromSourceUrl(sourceUrl) {
+  let url
+  try {
+    url = new URL(String(sourceUrl))
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' || url.hostname !== 'wallhaven.cc') return null
+  const match = url.pathname.match(/^\/w\/([A-Za-z0-9_-]{1,64})\/?$/)
+  return match ? match[1].toLowerCase() : null
+}
+
+function nonNegativeInt(value) {
+  const num = Number(value)
+  return Number.isFinite(num) && num > 0 ? Math.min(Math.round(num), 1_000_000_000) : 0
+}
+
+function libraryImagePath(item) {
+  return path.join(libraryDir('images'), `${item.id}${item.ext}`)
+}
+
+function libraryThumbPath(item) {
+  return item.thumbExt === null ? null : path.join(libraryDir('thumbs'), `${item.id}${item.thumbExt}`)
+}
+
+/** One listing entry, rebuilt field by field — never trusted from disk as-is. */
+function sanitizeLibraryItem(input) {
+  const id = sanitizeLibraryId(input?.id)
+  if (id === null) return null
+  const ext = LIBRARY_EXTS.includes(input?.ext) ? input.ext : '.jpg'
+  const thumbExt = LIBRARY_EXTS.includes(input?.thumbExt) ? input.thumbExt : null
+  const sourceUrl = wallhavenIdFromSourceUrl(input?.sourceUrl)
+    ? String(input.sourceUrl)
+    : `https://wallhaven.cc/w/${id}`
+  return {
+    id,
+    sourceUrl,
+    fullUrl: isWallhavenUrl(input?.fullUrl) ? String(input.fullUrl) : null,
+    thumbUrl: isWallhavenUrl(input?.thumbUrl) ? String(input.thumbUrl) : null,
+    width: nonNegativeInt(input?.width),
+    height: nonNegativeInt(input?.height),
+    fileSizeBytes: nonNegativeInt(input?.fileSizeBytes),
+    category: typeof input?.category === 'string' ? input.category.slice(0, 32) : '',
+    mime: LIBRARY_MIME_BY_EXT[ext],
+    ext,
+    thumbExt,
+    downloadedAt:
+      typeof input?.downloadedAt === 'string' && input.downloadedAt.length <= 40
+        ? input.downloadedAt
+        : new Date().toISOString(),
+  }
+}
+
+async function readLibraryIndex() {
+  let parsed
+  try {
+    parsed = JSON.parse(await fs.readFile(libraryIndexPath(), 'utf8'))
+  } catch {
+    return []
+  }
+  const items = []
+  const seen = new Set()
+  for (const raw of Array.isArray(parsed?.items) ? parsed.items : []) {
+    const item = sanitizeLibraryItem(raw)
+    if (item === null || seen.has(item.id)) continue
+    seen.add(item.id)
+    items.push(item)
+  }
+  return items
+}
+
+let libraryChain = Promise.resolve()
+
+/**
+ * Run a read-modify-write of the library index under one lock. The browser
+ * guard only makes a *window* single-flight; two windows can download at the
+ * same time, and without this the second writer would publish an index built
+ * from the state before the first one landed — losing its entry.
+ */
+function mutateLibrary(fn) {
+  const run = libraryChain.then(fn, fn)
+  libraryChain = run.then(
+    () => {},
+    () => {}
+  )
+  return run
+}
+
+/** Write the whole index. Callers must hold the lock (see `mutateLibrary`). */
+async function writeLibraryIndex(items) {
+  const body = Buffer.from(JSON.stringify({ version: 1, items }, null, 2) + '\n')
+  await fs.mkdir(libraryRoot(), { recursive: true })
+  await writeFileAtomic(libraryIndexPath(), body)
+}
+
+/** Drop the same id's file in every other extension, then write the new one. */
+async function writeLibraryFile(kind, id, ext, bytes) {
+  const dir = libraryDir(kind)
+  await fs.mkdir(dir, { recursive: true })
+  for (const other of LIBRARY_EXTS) {
+    if (other !== ext) await fs.rm(path.join(dir, `${id}${other}`), { force: true })
+  }
+  await writeFileAtomic(path.join(dir, `${id}${ext}`), bytes)
+}
+
+/**
+ * Fetch the marketplace thumbnail that makes a library grid cheap, or null.
+ * Best-effort by design: the wallpaper itself is what the user asked for, and
+ * a listing without a thumbnail falls back to the stored image.
+ */
+async function fetchLibraryThumb(thumbUrl) {
+  if (!isWallhavenUrl(thumbUrl)) return null
+  try {
+    const thumb = await fetchCapped(thumbUrl, {
+      cap: MAX_WP_THUMB_BYTES,
+      timeoutMs: 8_000,
+      label: 'wallpaper thumbnail',
+      acceptImage: true,
+    })
+    const mime = IMAGE_MIMES.has(thumb.mime) ? thumb.mime : sniffImageMime(thumb.bytes)
+    if (mime === null) return null
+    return { bytes: thumb.bytes, ext: mime === 'image/jpeg' ? '.jpg' : mime === 'image/png' ? '.png' : '.webp' }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Record one market download. Best-effort by design: the wallpaper itself is
+ * already written and enabled when this runs, so a library failure logs instead
+ * of failing the request.
+ *
+ * Dimensions and size are re-derived from the bytes that were actually stored;
+ * the listing only supplies what it alone knows (source page, thumbnail, the
+ * upstream category).
+ */
+async function recordDownloadedWallpaper({ bytes, mime, ext, id, sourceUrl, meta, thumb }) {
+  const entryId = sanitizeLibraryId(id) ?? wallhavenIdFromSourceUrl(sourceUrl)
+  if (entryId === null) throw invalid('A wallhaven id is required to record a download.')
+  await writeLibraryFile('images', entryId, ext, bytes)
+
+  const thumbExt = thumb === null ? null : thumb.ext
+  if (thumb !== null) await writeLibraryFile('thumbs', entryId, thumb.ext, thumb.bytes)
+
+  const pixels = sniffImagePixels(bytes, mime)
+  const entry = sanitizeLibraryItem({
+    id: entryId,
+    sourceUrl: wallhavenIdFromSourceUrl(sourceUrl) ? sourceUrl : `https://wallhaven.cc/w/${entryId}`,
+    fullUrl: meta?.fullUrl,
+    thumbUrl: meta?.thumbUrl,
+    width: pixels?.width ?? meta?.width,
+    height: pixels?.height ?? meta?.height,
+    fileSizeBytes: bytes.length,
+    category: meta?.category,
+    ext,
+    thumbExt,
+    downloadedAt: new Date().toISOString(),
+  })
+  if (entry === null) throw invalid('The download could not be recorded.')
+  return mutateLibrary(async () => {
+    const items = await readLibraryIndex()
+    // A previous download of the same id may carry the only thumbnail there is.
+    const previous = items.find((item) => item.id === entryId)
+    const merged = { ...entry, thumbExt: thumbExt ?? previous?.thumbExt ?? null }
+    await writeLibraryIndex([merged, ...items.filter((item) => item.id !== entryId)])
+  })
+}
+
+/**
+ * Adopt the wallpaper that is already applied as a library entry, so a
+ * wallpaper downloaded before the library existed still shows up under
+ * 已下载. Runs once per host process and is idempotent.
+ */
+let libraryImportOnce = null
+
+function ensureLibraryImported() {
+  if (libraryImportOnce === null) {
+    libraryImportOnce = importCurrentWallpaper().catch((error) => {
+      console.warn('dsh-wallpaper: could not adopt the current wallpaper', error)
+    })
+  }
+  return libraryImportOnce
+}
+
+async function importCurrentWallpaper() {
+  const config = await readConfig()
+  const id = wallhavenIdFromSourceUrl(config.wallpaperSourceUrl ?? '')
+  if (id === null) return
+  const current = await readWallpaper()
+  if (current === null) return
+  let ext
+  let mime
+  try {
+    const written = validateWallpaperBytes(current.bytes)
+    ext = written.ext
+    mime = written.mime
+  } catch {
+    return // a background file the current schema would not accept: skip it
+  }
+  await writeLibraryFile('images', id, ext, current.bytes)
+  const pixels = sniffImagePixels(current.bytes, mime)
+  const entry = sanitizeLibraryItem({
+    id,
+    sourceUrl: `https://wallhaven.cc/w/${id}`,
+    width: pixels?.width,
+    height: pixels?.height,
+    fileSizeBytes: current.bytes.length,
+    ext,
+    thumbExt: null,
+    downloadedAt: new Date().toISOString(),
+  })
+  if (entry === null) return
+  await mutateLibrary(async () => {
+    const items = await readLibraryIndex()
+    const existing = items.find((item) => item.id === id)
+    // Idempotent under the lock — unless that entry lost its file (deleted by
+    // hand, or an interrupted write): the listing hides file-less entries, so
+    // re-adopt the bytes just copied instead of leaving it invisible forever.
+    if (existing !== undefined && (await pathExists(libraryImagePath(existing)))) return
+    await writeLibraryIndex([entry, ...items.filter((item) => item.id !== id)])
+  })
+}
+
+/**
+ * The library as the client consumes it: entries whose file is still on disk,
+ * newest first, each with the plugin-relative paths it should fetch thumbnails
+ * and images from. `imagePath` is the fallback thumbnail for entries that have
+ * none (an adopted wallpaper), and doubles as the full-size source on demand.
+ */
+async function libraryList() {
+  await ensureLibraryImported()
+  const items = []
+  for (const item of await readLibraryIndex()) {
+    if (!(await pathExists(libraryImagePath(item)))) continue
+    const thumb = libraryThumbPath(item)
+    const hasThumb = thumb !== null && (await pathExists(thumb))
+    items.push({
+      id: item.id,
+      sourceUrl: item.sourceUrl,
+      thumbUrl: item.thumbUrl,
+      width: item.width,
+      height: item.height,
+      fileSizeBytes: item.fileSizeBytes,
+      category: item.category,
+      downloadedAt: item.downloadedAt,
+      thumbPath: hasThumb ? `/api/library/thumb?id=${encodeURIComponent(item.id)}` : null,
+      imagePath: `/api/library/image?id=${encodeURIComponent(item.id)}`,
+    })
+  }
+  return items
+}
+
+/** Read one stored library file (thumbnail or image) for the client. */
+async function libraryAsset(query, kind) {
+  const id = sanitizeLibraryId(query.get('id') ?? '')
+  if (id === null) throw invalid('Library id is invalid.')
+  const item = (await readLibraryIndex()).find((entry) => entry.id === id)
+  if (item === undefined) throw notFound('No such downloaded wallpaper.')
+  const file = kind === 'thumb' ? libraryThumbPath(item) : libraryImagePath(item)
+  if (file === null) throw notFound('This wallpaper has no stored thumbnail.')
+  try {
+    const ext = kind === 'thumb' ? item.thumbExt : item.ext
+    return { mime: LIBRARY_MIME_BY_EXT[ext] ?? 'image/jpeg', bytes: await fs.readFile(file) }
+  } catch {
+    throw notFound('The downloaded wallpaper file is missing.')
+  }
+}
+
+/** Re-apply a stored wallpaper: a local file copy, never a re-download. */
+async function libraryApply(body) {
+  const id = sanitizeLibraryId(body?.id)
+  if (id === null) throw invalid('Library id is invalid.')
+  const item = (await readLibraryIndex()).find((entry) => entry.id === id)
+  if (item === undefined) throw notFound('No such downloaded wallpaper.')
+  let bytes
+  try {
+    bytes = await fs.readFile(libraryImagePath(item))
+  } catch {
+    throw notFound('The downloaded wallpaper file is missing.')
+  }
+  const written = await writeWallpaper(bytes)
+  const config = await readConfig()
+  config.wallpaperEnabled = true
+  config.wallpaperSourceUrl = item.sourceUrl
+  await writeConfig(config)
+  return { mime: written.mime }
+}
+
+/** Drop the id's image and thumbnail in every extension the library uses. */
+async function removeLibraryFiles(id) {
+  for (const kind of ['images', 'thumbs']) {
+    for (const ext of LIBRARY_EXTS) {
+      await fs.rm(path.join(libraryDir(kind), `${id}${ext}`), { force: true })
+    }
+  }
+}
+
+/**
+ * Detach the applied wallpaper from a download that no longer exists. Deleting
+ * a download is not deleting the wallpaper — the image stays applied — but the
+ * source URL goes, or the next start would adopt the deleted entry straight
+ * back into the library and 使用中 would claim a download the user removed.
+ * `id` of null detaches whatever is applied (a full clear).
+ */
+async function forgetDetachedSource(id) {
+  const config = await readConfig()
+  const current = wallhavenIdFromSourceUrl(config.wallpaperSourceUrl ?? '')
+  if (current === null || (id !== null && current !== id)) return
+  config.wallpaperSourceUrl = null
+  await writeConfig(config)
+}
+
+/** Delete one stored wallpaper: its index entry first, then its files. */
+async function libraryRemove(body) {
+  const id = sanitizeLibraryId(body?.id)
+  if (id === null) throw invalid('Library id is invalid.')
+  const removed = await mutateLibrary(async () => {
+    const items = await readLibraryIndex()
+    if (!items.some((item) => item.id === id)) return false
+    await writeLibraryIndex(items.filter((item) => item.id !== id))
+    return true
+  })
+  if (!removed) throw notFound('No such downloaded wallpaper.')
+  await removeLibraryFiles(id)
+  await forgetDetachedSource(id)
+  return { removed: 1 }
+}
+
+/**
+ * Delete every stored wallpaper. The index is emptied first, so no listing can
+ * ever point at a half-deleted library, then both directories are removed
+ * outright — that also takes files orphaned by an interrupted write with them.
+ */
+async function libraryClear() {
+  const removed = await mutateLibrary(async () => {
+    const items = await readLibraryIndex()
+    await writeLibraryIndex([])
+    return items.length
+  })
+  for (const kind of ['images', 'thumbs']) {
+    await fs.rm(libraryDir(kind), { recursive: true, force: true })
+  }
+  await forgetDetachedSource(null)
+  return { removed }
 }
 
 // ─── HTTP route plumbing ────────────────────────────────────────────────────
@@ -533,6 +962,28 @@ async function handleApi(req, res, pathname, query) {
   if (route === `POST ${ROUTE_PREFIX}/api/market/download`) {
     if (!mutationAllowed(req)) throw new HttpError(403, 'forbidden', 'Cross-site request refused.')
     return sendJson(res, 200, { ok: true, ...(await wallpaperMarketDownload(await readJsonBody(req))) })
+  }
+
+  // ── Download library (the market's 已下载 category) ──
+  if (route === `GET ${ROUTE_PREFIX}/api/library`) {
+    return sendJson(res, 200, { ok: true, items: await libraryList() })
+  }
+  if (route === `GET ${ROUTE_PREFIX}/api/library/thumb` || route === `GET ${ROUTE_PREFIX}/api/library/image`) {
+    const kind = pathname.endsWith('/thumb') ? 'thumb' : 'image'
+    const { mime, bytes } = await libraryAsset(query, kind)
+    return sendBytes(res, mime, bytes)
+  }
+  if (route === `POST ${ROUTE_PREFIX}/api/library/apply`) {
+    if (!mutationAllowed(req)) throw new HttpError(403, 'forbidden', 'Cross-site request refused.')
+    return sendJson(res, 200, { ok: true, ...(await libraryApply(await readJsonBody(req))) })
+  }
+  if (route === `POST ${ROUTE_PREFIX}/api/library/remove`) {
+    if (!mutationAllowed(req)) throw new HttpError(403, 'forbidden', 'Cross-site request refused.')
+    return sendJson(res, 200, { ok: true, ...(await libraryRemove(await readJsonBody(req))) })
+  }
+  if (route === `POST ${ROUTE_PREFIX}/api/library/clear`) {
+    if (!mutationAllowed(req)) throw new HttpError(403, 'forbidden', 'Cross-site request refused.')
+    return sendJson(res, 200, { ok: true, ...(await libraryClear()) })
   }
 
   // ── Current wallpaper ──

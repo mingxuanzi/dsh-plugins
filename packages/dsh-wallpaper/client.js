@@ -27,19 +27,16 @@ window.__ModuleLoader__.load({
     const zh = {
       'wallpaper.title': '壁纸设置',
       'wallpaper.enable': '启用壁纸',
-      'wallpaper.opacity': '面板不透明度',
       'wallpaper.fill': '填充方式',
       'wallpaper.fill.cover': '覆盖',
       'wallpaper.fill.contain': '包含',
       'wallpaper.fill.center': '居中',
       'wallpaper.fill.tile': '平铺',
-      'wallpaper.mask': '遮罩不透明度',
+      'wallpaper.mask': '不透明度',
       'wallpaper.blur': '图片模糊',
-      'wallpaper.panel': '面板不透明度',
       'settings.fillHint': '图片铺满窗口的方式：覆盖裁切、包含留白、居中原始大小、平铺重复。',
       'settings.maskHint': '数值越高，图片越向主题背景色淡化，文字对比越清晰。',
       'settings.blurHint': '模糊背景图片本身（0 表示不模糊），不影响面板与文字。',
-      'settings.panelHint': '侧栏、面板与标签栏的不透明程度。越低，透出的图片越多。',
       'wallpaper.upload': '上传本地图片…',
       'wallpaper.remove': '移除壁纸',
       'wallpaper.searchPlaceholder': '搜索壁纸…',
@@ -47,6 +44,7 @@ window.__ModuleLoader__.load({
       'wallpaper.unavailable': '不可用',
       'wallpaper.appliedToast': '壁纸已应用',
       'wallpaper.downloadFailed': '下载失败',
+      'wallpaper.applyFailed': '应用失败',
       'wallpaper.tooLarge': '超过上限（{actual} / 上限 {limit}）',
       'wallpaper.empty': '没有找到壁纸',
       'wallpaper.pageInfo': '第 {page} / {lastPage} 页',
@@ -59,34 +57,41 @@ window.__ModuleLoader__.load({
       'wallpaper.categories.general': '常规',
       'wallpaper.categories.anime': '动漫',
       'wallpaper.categories.people': '人物',
+      'wallpaper.categories.downloaded': '已下载',
       'wallpaper.market': '壁纸市场',
       'wallpaper.marketHint': '点击卡片即可下载并应用为全局背景',
+      'wallpaper.libraryHint': '点击卡片即可应用，无需重新下载；悬停卡片左上角 × 可删除单张',
+      'wallpaper.libraryEmpty': '还没有已下载的壁纸',
+      'wallpaper.libraryCount': '共 {count} 张',
+      'wallpaper.delete': '删除',
+      'wallpaper.cardDelete': '删除壁纸 {id}',
+      'wallpaper.deleteAll': '全部删除',
+      'wallpaper.deleteAllConfirm': '确认全部删除？',
+      'wallpaper.cancel': '取消',
+      'wallpaper.deleted': '已删除',
+      'wallpaper.deleteFailed': '删除失败',
       'wallpaper.current': '当前壁纸',
       'wallpaper.none': '尚未设置壁纸',
       'wallpaper.localImage': '本地图片',
       'settings.nav': '壁纸',
       'settings.wallpaper': '壁纸',
       'settings.wallpaperHint': '为整个界面应用全局背景',
-      'settings.opacityHint': '面板在壁纸上方的不透明度，越低壁纸越明显',
       'settings.enabledHint': '关闭后界面恢复默认背景，壁纸文件保留',
     }
 
     const en = {
       'wallpaper.title': 'Wallpaper',
       'wallpaper.enable': 'Enable wallpaper',
-      'wallpaper.opacity': 'Panel opacity',
       'wallpaper.fill': 'Fill mode',
       'wallpaper.fill.cover': 'Cover',
       'wallpaper.fill.contain': 'Contain',
       'wallpaper.fill.center': 'Center',
       'wallpaper.fill.tile': 'Tile',
-      'wallpaper.mask': 'Mask opacity',
+      'wallpaper.mask': 'Opacity',
       'wallpaper.blur': 'Image blur',
-      'wallpaper.panel': 'Panel opacity',
       'settings.fillHint': 'How the image fills the window: cover crops, contain letterboxes, center keeps its size, tile repeats.',
       'settings.maskHint': 'Higher values fade the image toward the theme background and keep text contrast.',
       'settings.blurHint': 'Blurs the background image itself (0 = sharp). Panels and text are untouched.',
-      'settings.panelHint': 'Opacity of the sidebar, panels and tab strips. Lower values reveal more of the image.',
       'wallpaper.upload': 'Upload a local image…',
       'wallpaper.remove': 'Remove wallpaper',
       'wallpaper.searchPlaceholder': 'Search wallpapers…',
@@ -94,6 +99,7 @@ window.__ModuleLoader__.load({
       'wallpaper.unavailable': 'Unavailable',
       'wallpaper.appliedToast': 'Wallpaper applied',
       'wallpaper.downloadFailed': 'Download failed',
+      'wallpaper.applyFailed': 'Apply failed',
       'wallpaper.tooLarge': 'Over the limit ({actual} / limit {limit})',
       'wallpaper.empty': 'No wallpapers found',
       'wallpaper.pageInfo': 'Page {page} of {lastPage}',
@@ -106,15 +112,25 @@ window.__ModuleLoader__.load({
       'wallpaper.categories.general': 'General',
       'wallpaper.categories.anime': 'Anime',
       'wallpaper.categories.people': 'People',
+      'wallpaper.categories.downloaded': 'Downloaded',
       'wallpaper.market': 'Wallpaper marketplace',
       'wallpaper.marketHint': 'Click a card to download and apply it as the global background',
+      'wallpaper.libraryHint': 'Click a card to apply it — no second download; × on the card removes one',
+      'wallpaper.libraryEmpty': 'No downloaded wallpapers yet',
+      'wallpaper.libraryCount': '{count} saved',
+      'wallpaper.delete': 'Delete',
+      'wallpaper.cardDelete': 'Delete wallpaper {id}',
+      'wallpaper.deleteAll': 'Delete all',
+      'wallpaper.deleteAllConfirm': 'Delete all?',
+      'wallpaper.cancel': 'Cancel',
+      'wallpaper.deleted': 'Deleted',
+      'wallpaper.deleteFailed': 'Delete failed',
       'wallpaper.current': 'Current wallpaper',
       'wallpaper.none': 'No wallpaper set',
       'wallpaper.localImage': 'Local image',
       'settings.nav': 'Wallpaper',
       'settings.wallpaper': 'Wallpaper',
       'settings.wallpaperHint': 'Apply a global background to the whole interface',
-      'settings.opacityHint': 'Opacity of panels above the wallpaper; lower shows more of it',
       'settings.enabledHint': 'Turning this off restores the default background; the file stays',
     }
 
@@ -124,9 +140,9 @@ window.__ModuleLoader__.load({
       const listeners = new Set()
       const state = {
         loaded: false,
-        config: { wallpaperEnabled: false, wallpaperOpacity: 0.85, wallpaperSourceUrl: null },
+        config: { wallpaperEnabled: false, wallpaperSourceUrl: null },
         wallpaperVersion: 'none',
-        /** Fill mode / mask / blur / panel opacity — shared by layer + section. */
+        /** Fill mode / opacity / blur — shared by layer + section. */
         display: readWallpaperSettings(),
       }
       let snapshot = { ...state }
@@ -286,6 +302,8 @@ window.__ModuleLoader__.load({
 .dshwp-btn32:disabled { opacity: .6; cursor: default; }
 .dshwp-btn32-primary { border-color: transparent; background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); }
 .dshwp-btn32-primary:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); }
+.dshwp-btn32-danger { border-color: transparent; background: var(--dsw-alias-label-error); color: #fff; }
+.dshwp-btn32-danger:hover:not(:disabled) { filter: brightness(1.1); }
 .dshwp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 10px; }
 .dshwp-card { position: relative; aspect-ratio: 16/10; border-radius: var(--dsw-radius-lg, 12px); border: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-2); overflow: hidden; cursor: pointer; padding: 0; }
 .dshwp-card:disabled { cursor: default; }
@@ -294,6 +312,14 @@ window.__ModuleLoader__.load({
 .dshwp-tag { position: absolute; padding: 1px 6px; border-radius: 4px; font-size: 10px; line-height: 16px; background: rgb(0 0 0 / 55%); color: #fff; }
 .dshwp-shade { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgb(0 0 0 / 35%); opacity: 0; transition: opacity 0.12s; color: #fff; }
 .dshwp-card:hover:not(:disabled) .dshwp-shade { opacity: 1; }
+/* A downloadable card gets a wrapper so the delete button is a sibling of the
+   card button (interactive elements must not nest), and the card keeps its box. */
+.dshwp-cardwrap { position: relative; aspect-ratio: 16/10; }
+.dshwp-cardwrap .dshwp-card { width: 100%; height: 100%; }
+.dshwp-del { position: absolute; top: 6px; left: 6px; z-index: 2; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.dshwp-cardwrap:hover .dshwp-del:not(:disabled), .dshwp-del:focus-visible { opacity: 1; }
+.dshwp-del:hover:not(:disabled) { background: var(--dsw-alias-label-error, #d33); }
+.dshwp-del:disabled { cursor: default; opacity: 0.4; }
 .dshwp-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .dshwp-current { display: flex; align-items: center; gap: 12px; }
 .dshwp-current-thumb { width: 104px; height: 64px; flex: none; border: .5px solid var(--dsw-alias-border-l3); border-radius: var(--dsw-radius-md, 8px); overflow: hidden; background: var(--dsw-alias-bg-layer-3); }
@@ -364,7 +390,13 @@ window.__ModuleLoader__.load({
     const SEARCH_DEBOUNCE = 300
     const MAX_WP_BYTES_CLIENT = 16 * 1024 * 1024
     const MAX_WP_PIXELS_CLIENT = 40_000_000
-    const WP_CATEGORIES = ['all', 'general', 'anime', 'people']
+    const WP_CATEGORIES = ['all', 'general', 'anime', 'people', 'downloaded']
+    /**
+     * The one category that is not a wallhaven search: it lists the downloads
+     * the Host already keeps under `$DSH_HOME/wallpaper/library/` and applies
+     * them from disk.
+     */
+    const WP_LIBRARY_CATEGORY = 'downloaded'
 
     function wallpaperBlocker(w) {
       if (w.fileSizeBytes > MAX_WP_BYTES_CLIENT) return 'tooManyBytes'
@@ -380,11 +412,17 @@ window.__ModuleLoader__.load({
       return `${(pixels / 1_000_000).toFixed(1)} MP`
     }
 
-    function WallpaperCard({ wallpaper, t, assetCache, applied, downloading, busy, onApply }) {
-      const thumb = useProxiedAsset(
-        assetCache,
-        `/api/market/asset?url=${encodeURIComponent(wallpaper.thumbUrl)}`
-      )
+    /**
+     * One market card. `thumbPath` overrides the upstream thumbnail route:
+     * library entries show their stored thumbnail — or, when the download could
+     * not keep one, the stored image — instead of proxying wallhaven again.
+     * `onDelete` is passed only by the download library; it wraps the card so
+     * the delete button sits beside it rather than inside it.
+     */
+    function WallpaperCard({ wallpaper, thumbPath, t, assetCache, applied, downloading, busy, onApply, onDelete }) {
+      const thumbApiPath =
+        thumbPath ?? (wallpaper.thumbUrl ? `/api/market/asset?url=${encodeURIComponent(wallpaper.thumbUrl)}` : null)
+      const thumb = useProxiedAsset(assetCache, thumbApiPath)
       const blocker = wallpaperBlocker(wallpaper)
       const blockerHint =
         blocker === 'tooManyBytes'
@@ -396,7 +434,7 @@ window.__ModuleLoader__.load({
               })
             : null
       const resolution = wallpaper.width > 0 && wallpaper.height > 0 ? `${wallpaper.width}×${wallpaper.height}` : ''
-      return h(
+      const card = h(
         'button',
         {
           type: 'button',
@@ -411,7 +449,11 @@ window.__ModuleLoader__.load({
         },
         thumb.src
           ? h('img', { src: thumb.src, alt: '', loading: 'lazy' })
-          : h('span', { className: 'dshwp-card-empty' }, thumb.failed ? '×' : h(Spinner)),
+          : h(
+              'span',
+              { className: 'dshwp-card-empty' },
+              thumb.failed ? '×' : thumbApiPath ? h(Spinner) : h(ImageIcon, { size: 20 })
+            ),
         (blocker === 'tooManyBytes' ? formatBytes(wallpaper.fileSizeBytes) : resolution)
           ? h(
               'span',
@@ -432,12 +474,32 @@ window.__ModuleLoader__.load({
             )
           : null
       )
+      if (typeof onDelete !== 'function') return card
+      return h(
+        'div',
+        { className: 'dshwp-cardwrap' },
+        card,
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dshwp-del',
+            disabled: busy,
+            title: t('wallpaper.delete'),
+            'aria-label': t('wallpaper.cardDelete', { id: wallpaper.id }),
+            onClick: () => onDelete(wallpaper),
+          },
+          '×'
+        )
+      )
     }
 
     /**
      * The wallhaven.cc market, inline in the settings page (and reused wherever
-     * else the surface is needed). Single-flight downloads: two concurrent
-     * writes would race on the same background file.
+     * else the surface is needed), with a 已下载 category that lists the Host's
+     * download library instead of searching upstream. Single-flight applies:
+     * two concurrent writes would race on the same background file — and that
+     * guard covers the library, which writes that file too.
      */
     function WallpaperMarket({ store, t }) {
       const assetCacheRef = useRef(null)
@@ -457,9 +519,12 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(null)
       const [notice, setNotice] = useState(null)
       const [downloadingId, setDownloadingId] = useState(null)
+      /** 全部删除 is a two-step action: the button arms, the second click fires. */
+      const [confirmClear, setConfirmClear] = useState(false)
       const downloadingRef = useRef(null)
       const seqRef = useRef(0)
       const committedQuery = useRef('')
+      const inLibrary = category === WP_LIBRARY_CATEGORY
 
       useEffect(() => {
         const handle = setTimeout(() => {
@@ -478,6 +543,15 @@ window.__ModuleLoader__.load({
         setError(null)
         setShownPage(p)
         try {
+          if (c === WP_LIBRARY_CATEGORY) {
+            // Local by definition: one page, nothing to search for.
+            const data = await apiJson('/api/library')
+            if (seq !== seqRef.current) return
+            setItems(data.items)
+            setLastPage(1)
+            setShownPage(1)
+            return
+          }
           const params = new URLSearchParams({ query: q, category: c, page: String(p) })
           const data = await apiJson(`/api/market/search?${params}`)
           if (seq !== seqRef.current) return
@@ -509,7 +583,18 @@ window.__ModuleLoader__.load({
         try {
           await apiJson('/api/market/download', {
             method: 'POST',
-            body: JSON.stringify({ url: wallpaper.fullUrl, sourceUrl: wallpaper.sourceUrl }),
+            // The listing's own fields travel with the download so the Host can
+            // file it in the download library (thumbnail, dimensions, category).
+            // The id is not sent: the Host derives it from the validated
+            // sourceUrl page URL.
+            body: JSON.stringify({
+              url: wallpaper.fullUrl,
+              sourceUrl: wallpaper.sourceUrl,
+              thumbUrl: wallpaper.thumbUrl,
+              width: wallpaper.width,
+              height: wallpaper.height,
+              category: wallpaper.category,
+            }),
           })
           const data = await apiJson('/api/config', {
             method: 'PUT',
@@ -527,6 +612,73 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** Apply a stored download: the Host copies its own file, no network. */
+      const onLibraryApply = async (item) => {
+        if (downloadingRef.current !== null) return
+        downloadingRef.current = item.id
+        setDownloadingId(item.id)
+        setNotice(null)
+        setError(null)
+        try {
+          await apiJson('/api/library/apply', { method: 'POST', body: JSON.stringify({ id: item.id }) })
+          const data = await apiJson('/api/config')
+          store.setConfig(data.config)
+          const v = await apiJson('/api/version')
+          store.setWallpaperVersion(v.version)
+          setNotice(t('wallpaper.appliedToast'))
+        } catch (err) {
+          setError(`${t('wallpaper.applyFailed')}: ${err.message}`)
+        } finally {
+          downloadingRef.current = null
+          setDownloadingId(null)
+        }
+      }
+
+      /**
+       * Delete one stored download. The wallpaper that is applied right now is
+       * left alone — the Host only drops its source URL — so the two lists are
+       * refreshed from the Host rather than patched locally.
+       */
+      const onLibraryDelete = async (item) => {
+        if (downloadingRef.current !== null) return
+        downloadingRef.current = item.id
+        setDownloadingId(item.id)
+        setNotice(null)
+        setError(null)
+        try {
+          await apiJson('/api/library/remove', { method: 'POST', body: JSON.stringify({ id: item.id }) })
+          const data = await apiJson('/api/config')
+          store.setConfig(data.config)
+          await load(query, category, page)
+          setNotice(t('wallpaper.deleted'))
+        } catch (err) {
+          setError(`${t('wallpaper.deleteFailed')}: ${err.message}`)
+        } finally {
+          downloadingRef.current = null
+          setDownloadingId(null)
+        }
+      }
+
+      /** Delete every stored download (armed by the first click on 全部删除). */
+      const onClearLibrary = async () => {
+        if (downloadingRef.current !== null) return
+        downloadingRef.current = 'clear'
+        setNotice(null)
+        setError(null)
+        try {
+          await apiJson('/api/library/clear', { method: 'POST' })
+          const data = await apiJson('/api/config')
+          store.setConfig(data.config)
+          setConfirmClear(false)
+          await load(query, category, page)
+          setNotice(t('wallpaper.deleted'))
+        } catch (err) {
+          setError(`${t('wallpaper.deleteFailed')}: ${err.message}`)
+        } finally {
+          downloadingRef.current = null
+        }
+      }
+
       return h(
         'div',
         { className: 'dshwp-group' },
@@ -535,21 +687,26 @@ window.__ModuleLoader__.load({
           { className: 'dshwp-group-head' },
           h('h3', { className: 'dshwp-group-title' }, t('wallpaper.market')),
           h('span', { className: 'dshwp-muted' },
-            `${t('wallpaper.credit')}${loading ? '' : ` · ${t('wallpaper.pageInfo', { page: shownPage, lastPage })}`}`
+            inLibrary
+              ? t('wallpaper.libraryCount', { count: items.length })
+              : `${t('wallpaper.credit')}${loading ? '' : ` · ${t('wallpaper.pageInfo', { page: shownPage, lastPage })}`}`
           )
         ),
-        h('p', { className: 'dshwp-intro' }, t('wallpaper.marketHint')),
+        h('p', { className: 'dshwp-intro' }, t(inLibrary ? 'wallpaper.libraryHint' : 'wallpaper.marketHint')),
         h(
           'div',
           { className: 'dshwp-toolbar32' },
-          h('input', {
-            className: 'dshwp-input32',
-            style: { width: 220 },
-            value: searchInput,
-            placeholder: t('wallpaper.searchPlaceholder'),
-            'aria-label': t('wallpaper.searchPlaceholder'),
-            onChange: (event) => setSearchInput(event.target.value),
-          }),
+          // Search is a wallhaven concept; the library is short enough to scan.
+          inLibrary
+            ? null
+            : h('input', {
+                className: 'dshwp-input32',
+                style: { width: 220 },
+                value: searchInput,
+                placeholder: t('wallpaper.searchPlaceholder'),
+                'aria-label': t('wallpaper.searchPlaceholder'),
+                onChange: (event) => setSearchInput(event.target.value),
+              }),
           WP_CATEGORIES.map((c) =>
             h(
               'button',
@@ -559,6 +716,11 @@ window.__ModuleLoader__.load({
                 className: 'dshwp-chip',
                 'data-active': category === c ? 'true' : undefined,
                 onClick: () => {
+                  // The two sources share one item list: drop the other one's
+                  // cards now, or they stay clickable until the fetch lands —
+                  // and a wallhaven card has no library entry to apply.
+                  if ((c === WP_LIBRARY_CATEGORY) !== inLibrary) setItems([])
+                  setConfirmClear(false)
                   setCategory(c)
                   setPage(1)
                 },
@@ -570,14 +732,46 @@ window.__ModuleLoader__.load({
             'button',
             { type: 'button', className: 'dshwp-btn32', disabled: loading, onClick: () => void load(query, category, page) },
             loading ? h(Spinner) : t('wallpaper.refresh')
-          )
+          ),
+          // Only the library has anything to delete, and the second click is
+          // what actually clears it.
+          inLibrary && items.length > 0
+            ? confirmClear
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dshwp-btn32 dshwp-btn32-danger',
+                    disabled: loading,
+                    onClick: () => void onClearLibrary(),
+                  },
+                  t('wallpaper.deleteAllConfirm')
+                )
+              : h(
+                  'button',
+                  { type: 'button', className: 'dshwp-btn32', onClick: () => setConfirmClear(true) },
+                  t('wallpaper.deleteAll')
+                )
+            : null,
+          inLibrary && confirmClear
+            ? h(
+                'button',
+                { type: 'button', className: 'dshwp-btn32', onClick: () => setConfirmClear(false) },
+                t('wallpaper.cancel')
+              )
+            : null
         ),
         error ? h('p', { className: 'dshwp-error' }, error) : null,
         notice ? h('p', { className: 'dshwp-ok' }, notice) : null,
         loading && items.length === 0
           ? h('div', { style: { display: 'flex', justifyContent: 'center', padding: 40 } }, h(Spinner))
           : items.length === 0 && !error
-            ? h('div', { className: 'dshwp-empty' }, h(ImageIcon, { size: 24 }), h('span', null, t('wallpaper.empty')))
+            ? h(
+                'div',
+                { className: 'dshwp-empty' },
+                h(ImageIcon, { size: 24 }),
+                h('span', null, t(inLibrary ? 'wallpaper.libraryEmpty' : 'wallpaper.empty'))
+              )
             : h(
                 'div',
                 { className: 'dshwp-grid', style: loading ? { opacity: 0.6 } : undefined },
@@ -585,44 +779,50 @@ window.__ModuleLoader__.load({
                   h(WallpaperCard, {
                     key: w.id,
                     wallpaper: w,
+                    // A stored thumbnail is preferred; the stored image is the
+                    // fallback for entries that could not keep one.
+                    thumbPath: inLibrary ? (w.thumbPath ?? w.imagePath) : undefined,
                     t,
                     assetCache,
                     applied: config.wallpaperSourceUrl === w.sourceUrl,
                     downloading: downloadingId === w.id,
                     busy: downloadingId !== null,
-                    onApply: (item) => void onCardApply(item),
+                    onApply: (item) => void (inLibrary ? onLibraryApply(item) : onCardApply(item)),
+                    onDelete: inLibrary ? onLibraryDelete : undefined,
                   })
                 )
               ),
-        h(
-          'div',
-          { className: 'dshwp-pager' },
-          h('span', { className: 'dshwp-muted' }, t('wallpaper.pageInfo', { page: shownPage, lastPage })),
-          h(
-            'div',
-            { style: { display: 'flex', gap: 8 } },
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dshwp-btn32',
-                disabled: shownPage <= 1 || loading,
-                onClick: () => setPage(Math.max(1, shownPage - 1)),
-              },
-              t('wallpaper.prevPage')
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dshwp-btn32',
-                disabled: shownPage >= lastPage || loading,
-                onClick: () => setPage(shownPage + 1),
-              },
-              t('wallpaper.nextPage')
+        inLibrary
+          ? null
+          : h(
+              'div',
+              { className: 'dshwp-pager' },
+              h('span', { className: 'dshwp-muted' }, t('wallpaper.pageInfo', { page: shownPage, lastPage })),
+              h(
+                'div',
+                { style: { display: 'flex', gap: 8 } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dshwp-btn32',
+                    disabled: shownPage <= 1 || loading,
+                    onClick: () => setPage(Math.max(1, shownPage - 1)),
+                  },
+                  t('wallpaper.prevPage')
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dshwp-btn32',
+                    disabled: shownPage >= lastPage || loading,
+                    onClick: () => setPage(shownPage + 1),
+                  },
+                  t('wallpaper.nextPage')
+                )
+              )
             )
-          )
-        )
       )
     }
 
@@ -640,11 +840,10 @@ window.__ModuleLoader__.load({
       center: { size: 'auto', repeat: 'no-repeat' },
       tile: { size: 'auto', repeat: 'repeat' },
     }
-    const WP_DEFAULTS = { fillMode: 'cover', maskOpacity: 0.82, imageBlur: 0, panelOpacity: 0.3 }
+    const WP_DEFAULTS = { fillMode: 'cover', maskOpacity: 0.82, imageBlur: 0 }
     const WP_RANGE = {
       maskOpacity: { min: 0, max: 0.99, step: 0.01 },
       imageBlur: { min: 0, max: 24, step: 1 },
-      panelOpacity: { min: 0, max: 1, step: 0.05 },
     }
     /**
      * Frost for the chrome that keeps a glass look. codeg uses 8px for every
@@ -652,6 +851,15 @@ window.__ModuleLoader__.load({
      * image, so the sidebar and the top bar share this value.
      */
     const WP_FROST = 'blur(8px) saturate(140%)'
+    /**
+     * Alpha of every structural surface above the wallpaper: the frame, the
+     * columns, the panels and the tab strips. The panel-opacity slider is gone,
+     * and 0 is the value it was asked to keep — surfaces are painted fully
+     * transparent, so the image reads the same behind the whole window. What is
+     * left as chrome is the sidebar's frost and the region hairlines; text and
+     * controls keep their own colours, only the box fills go.
+     */
+    const WP_PANEL_ALPHA = 0
 
     function clampSetting(key, value) {
       const num = Number(value)
@@ -669,7 +877,6 @@ window.__ModuleLoader__.load({
           fillMode: WP_FILL_MODES.includes(parsed?.fillMode) ? parsed.fillMode : WP_DEFAULTS.fillMode,
           maskOpacity: clampSetting('maskOpacity', parsed?.maskOpacity ?? WP_DEFAULTS.maskOpacity),
           imageBlur: clampSetting('imageBlur', parsed?.imageBlur ?? WP_DEFAULTS.imageBlur),
-          panelOpacity: clampSetting('panelOpacity', parsed?.panelOpacity ?? WP_DEFAULTS.panelOpacity),
         }
       } catch {
         return { ...WP_DEFAULTS }
@@ -1013,14 +1220,7 @@ window.__ModuleLoader__.load({
           if (wallpaperUrl !== null) applyBackgroundStack()
           const frameRect = measureFrameBox()
           const frameArea = Math.max(1, frameRect.width * frameRect.height)
-          const tuned = settingsRef.current
-          const alpha = Math.round(tuned.panelOpacity * 100)
-          /**
-           * The chrome keeps the same alpha as the panels (codeg drives every
-           * structural surface from one slider) — the frost is what separates
-           * the sidebar from the canvas, not a second opacity.
-           */
-          const chromeAlpha = alpha
+          const alpha = Math.round(WP_PANEL_ALPHA * 100)
 
           /** Region separators: one hairline wherever two regions meet. */
           const line = 'color-mix(in srgb, currentColor 28%, transparent)'
@@ -1130,7 +1330,7 @@ window.__ModuleLoader__.load({
             // would leave the wallpaper recipe painted on a box that is no
             // longer the composer.
             entry.kind = kind
-            const useAlpha = kind === 'sidebar' || barLike ? chromeAlpha : alpha
+            const useAlpha = alpha
             if (isComposer) {
               /**
                * The composer sits above the conversation, so plain transparency
@@ -1143,10 +1343,11 @@ window.__ModuleLoader__.load({
                * Painting the image under the veil alone is what left the input
                * box reading brighter/clearer than the conversation around it:
                * the canvas is the same image *and* the frame/column/panel tints
-               * on top, so the composer showed about (1 - panelOpacity)^n more
-               * of the wallpaper than the surface it sits on. The ancestor
-               * colours are read from computed style — the exact pixels the
-               * canvas composites — so the two recipes can never drift apart.
+               * on top, so the composer showed more of the wallpaper than the
+               * surface it sits on — each translucent ancestor lightens it
+               * again. The ancestor colours are read from computed style — the
+               * exact pixels the canvas composites — so the two recipes can
+               * never drift apart.
                */
               const tuned = settingsRef.current
               const fill = WP_FILL_STYLE[tuned.fillMode] ?? WP_FILL_STYLE.cover
@@ -1764,25 +1965,6 @@ window.__ModuleLoader__.load({
               onChange: (event) => updateSettings({ imageBlur: clampSetting('imageBlur', event.target.value) }),
             }),
             h('span', { className: 'dshwp-muted' }, `${settings.imageBlur}px`)
-          ),
-          h(
-            SettingsRow,
-            {
-              title: t('wallpaper.panel'),
-              description: t('settings.panelHint'),
-            },
-            h('input', {
-              type: 'range',
-              min: WP_RANGE.panelOpacity.min,
-              max: WP_RANGE.panelOpacity.max,
-              step: WP_RANGE.panelOpacity.step,
-              value: settings.panelOpacity,
-              className: 'dshwp-range',
-              style: { width: 148 },
-              'aria-label': t('wallpaper.panel'),
-              onChange: (event) => updateSettings({ panelOpacity: clampSetting('panelOpacity', event.target.value) }),
-            }),
-            h('span', { className: 'dshwp-muted' }, `${Math.round(settings.panelOpacity * 100)}%`)
           ),
           h(
             SettingsRow,
