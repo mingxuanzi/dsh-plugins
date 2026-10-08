@@ -1,6 +1,6 @@
 {
   "name": "@qwqweeo123/dsh-open-in-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "The Session-header \"Open In…\" split button — open the workspace directory in an installed editor, Git GUI, terminal, or file manager. Self-contained copy of the built-in feature with the desktop-build fixes, so it travels as a plugin instead of an app.asar patch.",
   "meta": {
@@ -47,6 +47,19 @@
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
       ]
+    },
+    "catalog": {
+      "category": "tool",
+      "summary": {
+        "en": "Open the workspace directory in an installed editor, Git GUI, terminal, or file manager — self-contained with the fixes a stock desktop build needs to actually launch them.",
+        "zh": "在已安装的编辑器 / Git GUI / 终端 / 文件管理器里打开工作目录，自带官方实现与桌面端修复，点了就能开。"
+      },
+      "capabilities": [
+        "webServer",
+        "subprocess",
+        "shell",
+        "fs"
+      ]
     }
   },
   "keywords": [
@@ -62,5 +75,14 @@
   "author": "MingXuanZi",
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingxuanzi/dsh-plugins.git",
+    "directory": "packages/dsh-open-in-app"
+  },
+  "homepage": "https://github.com/mingxuanzi/dsh-plugins/tree/main/packages/dsh-open-in-app",
+  "bugs": {
+    "url": "https://github.com/mingxuanzi/dsh-plugins/issues"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@qwqweeo123/dsh-wallpaper",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "Apply a global wallpaper to the whole interface — every surface is re-composited so the image shows through consistently, from the wallhaven.cc marketplace or a local upload.",
   "icon": "./icon.svg",
@@ -39,6 +39,18 @@
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-settings-general"
       ]
+    },
+    "catalog": {
+      "category": "theme",
+      "summary": {
+        "en": "Global wallpaper from wallhaven.cc or a local image, re-composited so every surface shows the same image weight, plus Windows desktop titlebar integration.",
+        "zh": "全局壁纸：wallhaven.cc 图库或本地图片，按同一套合成让每个界面的透出权重一致，并让 Windows 桌面端标题栏跟随壁纸。"
+      },
+      "capabilities": [
+        "webServer",
+        "fs",
+        "network"
+      ]
     }
   },
   "keywords": [
@@ -53,5 +65,14 @@
   "author": "MingXuanZi",
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingxuanzi/dsh-plugins.git",
+    "directory": "packages/dsh-wallpaper"
+  },
+  "homepage": "https://github.com/mingxuanzi/dsh-plugins/tree/main/packages/dsh-wallpaper",
+  "bugs": {
+    "url": "https://github.com/mingxuanzi/dsh-plugins/issues"
   }
 }
