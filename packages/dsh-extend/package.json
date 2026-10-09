@@ -1,11 +1,12 @@
 {
-  "name": "@qwqweeo123/dsh-open-in-app",
-  "version": "1.0.1",
+  "name": "@qwqweeo123/dsh-extend",
+  "version": "1.0.0",
   "type": "module",
-  "description": "The Session-header \"Open In…\" split button — open the workspace directory in an installed editor, Git GUI, terminal, or file manager. Self-contained copy of the built-in feature with the desktop-build fixes, so it travels as a plugin instead of an app.asar patch.",
+  "description": "Three plugins in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), and the Session-header Open In… button with the desktop-build fixes.",
+  "icon": "./icon.svg",
   "meta": {
-    "title": "Open In…",
-    "description": "The Session-header \"Open In…\" split button — open the workspace directory in an installed editor, Git GUI, terminal, or file manager. Self-contained copy of the built-in feature with the desktop-build fixes, so it travels as a plugin instead of an app.asar patch."
+    "title": "Extend Suite",
+    "description": "Three plugins in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), and the Session-header Open In… button with the desktop-build fixes."
   },
   "exports": {
     ".": "./index.js",
@@ -16,6 +17,8 @@
   "files": [
     "index.js",
     "client.js",
+    "pet.js",
+    "wallpaper.js",
     "cordis.patch.yml",
     "icon.svg",
     "locale",
@@ -35,6 +38,7 @@
     },
     "client": {
       "platform": "web",
+      "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-api-gateway",
         "@deepseek-ai/dsh-api-remotes",
@@ -45,31 +49,36 @@
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-settings-general",
         "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
       ]
     },
     "catalog": {
-      "category": "tool",
+      "category": "ui",
       "summary": {
-        "en": "Open the workspace directory in an installed editor, Git GUI, terminal, or file manager — self-contained with the fixes a stock desktop build needs to actually launch them.",
-        "zh": "在已安装的编辑器 / Git GUI / 终端 / 文件管理器里打开工作目录，自带官方实现与桌面端修复，点了就能开。"
+        "en": "Three plugins in one: a desktop pet in an always-on-top window (codex-pets.net market), a global wallpaper (wallhaven.cc or local image), and the Open In… button with desktop-build fixes.",
+        "zh": "三合一扩展包：独立置顶小窗里的桌面宠物（内置 codex-pets.net 市场）、全局壁纸（wallhaven.cc 或本地图片）、以及带桌面端修复的 Open In… 按钮。"
       },
       "capabilities": [
         "webServer",
         "subprocess",
         "shell",
-        "fs"
+        "fs",
+        "network"
       ]
     }
   },
   "keywords": [
     "dsh",
     "dsh-plugin",
+    "pet",
+    "desktop-pet",
+    "wallpaper",
+    "theme",
     "open-in-app",
     "editor",
     "terminal",
-    "vscode",
-    "ide"
+    "suite"
   ],
   "license": "MIT",
   "author": "MingXuanZi",
@@ -79,9 +88,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mingxuanzi/dsh-plugins.git",
-    "directory": "packages/dsh-open-in-app"
+    "directory": "packages/dsh-extend"
   },
-  "homepage": "https://github.com/mingxuanzi/dsh-plugins/tree/main/packages/dsh-open-in-app",
+  "homepage": "https://github.com/mingxuanzi/dsh-plugins/tree/main/packages/dsh-extend",
   "bugs": {
     "url": "https://github.com/mingxuanzi/dsh-plugins/issues"
   }

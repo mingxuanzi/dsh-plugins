@@ -1,22 +1,28 @@
-# Bundle layer for the Open In… plugin.
+# Bundle layer for the Extend suite — the merged Open In…, Desktop Pet and
+# Wallpaper features (formerly the @qwqweeo123/dsh-open-in-app, /dsh-pet and
+# /dsh-wallpaper packages).
 #
-# The desktop application already ships this feature as a pair of packages
+# One inserted row mounts the package's Host half, whose apply() starts all
+# three features; the browser half arrives through the dsh.client declaration
+# as a single module that applies the three feature modules.
+#
+# The desktop application already ships Open In… as a pair of packages
 # (@deepseek-ai/dsh-host-open-in-app + @deepseek-ai/dsh-client-ui-open-in-app).
-# This bundle takes both of them out of the composition and puts this package's
-# copy in their place:
+# This bundle takes both of them out of the composition and puts this
+# package's copy in their place:
 #
 #   * the shipped host half owns the /open-in-app/* routes, so it must be gone
 #     before ours registers the same paths;
 #   * the shipped browser half registers the same six slot ids ("open-in-app"),
 #     so leaving it mounted would render the button twice.
 #
-# Replacing them - rather than patching app.asar - is what makes the fixes in
+# Replacing them — rather than patching app.asar — is what makes the fixes in
 # vendor/open-in-app-host.js and the ELECTRON_RUN_AS_NODE scrub in
 # vendor/dsh-subprocess.js travel with the plugin: install it on any desktop
 # build and restart.
 - insert:
-    - id: dsh-open-in-app
-      name: '@local/dsh-open-in-app'
+    - id: dsh-extend
+      name: '@qwqweeo123/dsh-extend'
       config:
         probeTimeoutMs: 10000
         iconTimeoutMs: 10000
