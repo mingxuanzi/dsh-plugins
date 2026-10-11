@@ -3301,6 +3301,7 @@ window.__ModuleLoader__.load({
       'wallpaper.refresh': '刷新',
       'wallpaper.credit': '来自 wallhaven.cc',
       'wallpaper.cardLabel': '壁纸 {id}',
+      'wallpaper.downloaded': '已下载',
       'wallpaper.categories.all': '全部',
       'wallpaper.categories.general': '常规',
       'wallpaper.categories.anime': '动漫',
@@ -3356,6 +3357,7 @@ window.__ModuleLoader__.load({
       'wallpaper.refresh': 'Refresh',
       'wallpaper.credit': 'from wallhaven.cc',
       'wallpaper.cardLabel': 'Wallpaper {id}',
+      'wallpaper.downloaded': 'Downloaded',
       'wallpaper.categories.all': 'All',
       'wallpaper.categories.general': 'General',
       'wallpaper.categories.anime': 'Anime',
@@ -3667,7 +3669,7 @@ window.__ModuleLoader__.load({
      * `onDelete` is passed only by the download library; it wraps the card so
      * the delete button sits beside it rather than inside it.
      */
-    function WallpaperCard({ wallpaper, thumbPath, t, assetCache, applied, downloading, busy, onApply, onDelete }) {
+    function WallpaperCard({ wallpaper, thumbPath, t, assetCache, applied, downloaded, downloading, busy, onApply, onDelete }) {
       const thumbApiPath =
         thumbPath ?? (wallpaper.thumbUrl ? `/api/market/asset?url=${encodeURIComponent(wallpaper.thumbUrl)}` : null)
       const thumb = useProxiedAsset(assetCache, thumbApiPath)
@@ -3690,7 +3692,7 @@ window.__ModuleLoader__.load({
           disabled: busy || blocker !== null,
           style: blocker ? { opacity: 0.5 } : undefined,
           title: blockerHint || resolution || wallpaper.id,
-          'aria-label': [t('wallpaper.cardLabel', { id: wallpaper.id }), resolution, applied ? t('wallpaper.applied') : null, blockerHint]
+          'aria-label': [t('wallpaper.cardLabel', { id: wallpaper.id }), resolution, applied ? t('wallpaper.applied') : null, downloaded ? t('wallpaper.downloaded') : null, blockerHint]
             .filter(Boolean)
             .join(' · '),
           onClick: () => onApply(wallpaper),
@@ -3714,6 +3716,24 @@ window.__ModuleLoader__.load({
           : blocker
             ? h('span', { className: 'dshwp-tag', style: { right: 6, top: 6 } }, t('wallpaper.unavailable'))
             : null,
+        downloaded
+          ? h(
+              'span',
+              {
+                className: 'dshwp-tag',
+                style: {
+                  left: 6,
+                  top: 6,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  color: 'var(--dsw-alias-state-success-primary, #22c55e)',
+                },
+              },
+              '✓',
+              t('wallpaper.downloaded')
+            )
+          : null,
         !blocker
           ? h(
               'span',
@@ -3767,6 +3787,8 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(null)
       const [notice, setNotice] = useState(null)
       const [downloadingId, setDownloadingId] = useState(null)
+      /** Ids of the Host's download library, for the market's 已下载 badge. */
+      const [libraryIds, setLibraryIds] = useState(() => new Set())
       /** 全部删除 is a two-step action: the button arms, the second click fires. */
       const [confirmClear, setConfirmClear] = useState(false)
       const downloadingRef = useRef(null)
@@ -3801,11 +3823,17 @@ window.__ModuleLoader__.load({
             return
           }
           const params = new URLSearchParams({ query: q, category: c, page: String(p) })
-          const data = await apiJson(`/api/market/search?${params}`)
+          // The library id set rides along so market cards can carry the
+          // 已下载 badge; both fetches share one seq guard.
+          const [data, library] = await Promise.all([
+            apiJson(`/api/market/search?${params}`),
+            apiJson('/api/library'),
+          ])
           if (seq !== seqRef.current) return
           setItems(data.items)
           setLastPage(data.lastPage)
           setShownPage(data.page)
+          setLibraryIds(new Set((library.items ?? []).map((item) => item.id)))
           // Upstream clamps out-of-range pages; pull the cursor back (never forward).
           if (data.page < p) setPage(data.page)
         } catch (err) {
@@ -3851,6 +3879,9 @@ window.__ModuleLoader__.load({
           store.setConfig(data.config)
           const v = await apiJson('/api/version')
           store.setWallpaperVersion(v.version)
+          // The download is in the library now — mark the card without
+          // waiting for the next market fetch.
+          setLibraryIds((prev) => new Set(prev).add(wallpaper.id))
           setNotice(t('wallpaper.appliedToast'))
         } catch (err) {
           setError(`${t('wallpaper.downloadFailed')}: ${err.message}`)
@@ -4033,6 +4064,7 @@ window.__ModuleLoader__.load({
                     t,
                     assetCache,
                     applied: config.wallpaperSourceUrl === w.sourceUrl,
+                    downloaded: !inLibrary && libraryIds.has(w.id),
                     downloading: downloadingId === w.id,
                     busy: downloadingId !== null,
                     onApply: (item) => void (inLibrary ? onLibraryApply(item) : onCardApply(item)),
