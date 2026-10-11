@@ -1,9 +1,10 @@
 /**
- * Browser half of @qwqweeo123/dsh-extend — one bundle carrying three features that used to
+ * Browser half of @qwqweeo123/dsh-extend — one bundle carrying four features that used to
  * ship as three separate packages: Open In… (@qwqweeo123/dsh-open-in-app),
- * Desktop Pet (@qwqweeo123/dsh-pet) and Wallpaper (@qwqweeo123/dsh-wallpaper).
+ * Desktop Pet (@qwqweeo123/dsh-pet) and Wallpaper (@qwqweeo123/dsh-wallpaper),
+ * plus a codeg-style session tab bar in the conversation header.
  *
- * The file registers four modules: one per feature (the standalone client.js
+ * The file registers five modules: one per feature (the standalone client.js
  * verbatim, re-homed under this package's submodule ids, with style-tag
  * ownership moved to this package so unload still reclaims them) and the
  * composition module the shell activates.
@@ -4391,6 +4392,15 @@ window.__ModuleLoader__.load({
             `  background-color: color-mix(in srgb, var(--dsw-alias-bg-base) ${Math.round(tuned.maskOpacity * 100)}%, transparent);`,
             '}',
           ].join('\n')
+          // Publish the recipe so other surfaces (the tab strip's context
+          // menu) can paint their own wallpaper patch: the image is
+          // viewport-fixed, so any box painting it with `fixed` attachment
+          // lines up pixel-for-pixel with the canvas, and the veil rides the
+          // same mask-opacity the conversation surfaces show.
+          const veil = `color-mix(in srgb, var(--dsw-alias-bg-base) ${Math.round(tuned.maskOpacity * 100)}%, transparent)`
+          document.documentElement.style.setProperty('--dshwp-veil', veil)
+          document.documentElement.style.setProperty('--dshwp-fill-size', fill.size)
+          document.documentElement.style.setProperty('--dshwp-fill-repeat', fill.repeat)
         }
 
         /** Region separators: one hairline wherever two regions meet. */
@@ -4524,6 +4534,9 @@ window.__ModuleLoader__.load({
           const apply = (el, kind) => {
             if (!(el instanceof HTMLElement)) return
             if (host.contains(el)) return
+            // Self-painting surfaces (the tab strip's context menu) apply the
+            // wallpaper recipe themselves; booking them here would wipe it.
+            if (el.hasAttribute('data-dshwp-selfpaint')) return
             seen.add(el)
             const cs = getComputedStyle(el)
             const barLike = kind === 'bar' || kind === 'bar-child' || kind === 'bar-inner'
@@ -4870,33 +4883,66 @@ window.__ModuleLoader__.load({
 
         let repaintTimer = null
         let frameHandle = null
-        let lastLeadAt = 0
+        let lastRepaintAt = 0
+
+        const runRepaint = () => {
+          lastRepaintAt = Date.now()
+          repaint()
+        }
+
+        /**
+         * Did this mutation batch swap a subtree (a session switch, a panel
+         * opening) rather than stream content? Streaming adds and removes
+         * leaf nodes — text and single inline elements; a view swap moves a
+         * whole container. The test is a cheap node-shape check: no layout
+         * reads, so it costs nothing per streamed token.
+         */
+        const isStructural = (mutations) => {
+          const substantial = (node) => node.nodeType === 1 && node.childElementCount >= 2
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) if (substantial(node)) return true
+            for (const node of mutation.removedNodes) if (substantial(node)) return true
+          }
+          return false
+        }
+
         /**
          * Repaint on both edges of a churn burst.
          *
-         * Switching sessions replaces the conversation subtree in one commit, and
-         * the freshly mounted panels — the "载入历史…" state included — still
-         * carry their own opaque colours. A trailing-only debounce therefore left
-         * the wallpaper hidden for its whole window: the flash the user sees
-         * before it "refreshes" back. The leading repaint runs on the next frame,
-         * before the browser paints the new content, and is throttled so a
-         * streaming answer cannot turn into a repaint per token; the trailing one
-         * then catches whatever mounted after it.
+         * Switching sessions replaces the conversation subtree in one commit,
+         * and the freshly mounted panels — the "载入历史…" state included —
+         * still carry their own opaque colours. A trailing-only debounce left
+         * the wallpaper hidden for the whole window: the flash the user saw
+         * before it "refreshed" back. A purely throttled leading edge had the
+         * same hole whenever a repaint had just run: the swap landed inside
+         * the throttle window and stayed opaque until the 500ms trailing
+         * timer. So structural swaps repaint on the next frame, BEFORE the
+         * browser can paint the opaque newcomers (a 50ms floor keeps a
+         * multi-frame commit burst from walking the tree per frame); content
+         * churn keeps the 150ms throttle so a streaming answer cannot turn
+         * into a repaint per token; and a short trailing debounce — reset by
+         * every mutation, not pinned to the first — catches whatever mounted
+         * after the burst's last repaint.
          */
-        const scheduleRepaint = () => {
+        const scheduleRepaint = (mutations) => {
+          if (disposed) return
           const now = Date.now()
-          if (frameHandle === null && now - lastLeadAt >= 150) {
-            lastLeadAt = now
+          const floor = mutations !== undefined && isStructural(mutations) ? 50 : 150
+          if (frameHandle === null && now - lastRepaintAt >= floor) {
             frameHandle = requestAnimationFrame(() => {
               frameHandle = null
-              repaint()
+              runRepaint()
             })
           }
-          if (repaintTimer !== null) return
+          if (repaintTimer !== null) clearTimeout(repaintTimer)
           repaintTimer = setTimeout(() => {
             repaintTimer = null
-            repaint()
-          }, 500)
+            if (frameHandle !== null) {
+              cancelAnimationFrame(frameHandle)
+              frameHandle = null
+            }
+            runRepaint()
+          }, 120)
         }
 
         const mount = async () => {
@@ -4963,6 +5009,9 @@ window.__ModuleLoader__.load({
             bodyBackground = null
           }
           document.documentElement.style.removeProperty('--dshwp-image')
+          document.documentElement.style.removeProperty('--dshwp-veil')
+          document.documentElement.style.removeProperty('--dshwp-fill-size')
+          document.documentElement.style.removeProperty('--dshwp-fill-repeat')
           // Hand the caption strip back to the theme (the shell re-reads it on
           // this body mutation and restores the window-controls overlay).
           document.body.style.removeProperty(CAPTION_FILL)
@@ -5330,13 +5379,1613 @@ window.__ModuleLoader__.load({
   },
 })
 
+// ─── Session tab bar (ported from codeg's conversation top bar) ───────────
+//
+// codeg keeps one browser-style tab per open conversation in the window's
+// title strip (src/components/tabs/tab-bar.tsx + tab-item.tsx): click to
+// switch, × / middle click to close, right click for the tab menu (close,
+// close to the left/right, close others, close all), drag sideways to
+// reorder, and a trailing compose button that opens a fresh draft. This
+// module ports that strip into the shell through the root-scoped
+// `conversation.header.leading` seat, and then seats it codeg-style:
+// - On the Windows desktop shell the strip is hoisted into the window's
+//   caption band (frameless `titleBarStyle: hidden`): it sits fixed between
+//   the Desktop-owned caption menus and the native window controls, carries
+//   the drag region over its own box, and the seat it came from collapses.
+// - Everywhere else (browser, macOS) the seat's stylesheet re-stacks the
+//   conversation header so the strip is the column's full-width top bar,
+//   above the session title row — codeg seats the strip above the detail
+//   header, not inside it.
+//
+// Tabs are GLOBAL, not workspace-scoped: every visible session of the
+// profile, exactly as codeg's strip shows the folder's conversations rather
+// than a sub-grouping. The order is the strip's own durable state in
+// localStorage (drag-reorder rewrites it), so a busy session never
+// reshuffles the strip the way the sidebar's recency order would — MINUS
+// the strip's own closed set. Closing a tab only closes the tab: the
+// session stays in the sidebar, exactly as codeg's close never deletes the
+// conversation. The closed set is persisted in localStorage; opening a
+// session again (a sidebar click, a restore) brings its tab back. codeg's
+// split-group and tiling menu items have no shell counterpart and are not
+// ported.
+
+window.__ModuleLoader__.load({
+  id: '@qwqweeo123/dsh-extend/tabbar',
+  factory(require) {
+    const React = require('react')
+    const {
+      IconCloseOutlineRegular,
+      IconNewChatOutlineRegular,
+      StateDot,
+    } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { useCallback, useEffect, useMemo, useRef, useState } = React
+    const h = React.createElement
+
+    const NS = 'tabbar'
+
+    /**
+     * Same ownership rule as the pet module's stylesheets: the shell claims
+     * every untagged style tag for whichever plugin entry activates next and
+     * removes it with that entry, so this stylesheet must name its owner.
+     */
+    const STYLE_ATTRS = {
+      'data-plugin': '@qwqweeo123/dsh-extend',
+      'data-plugin-css': '@qwqweeo123/dsh-extend/tabbar/client.css',
+    }
+
+    // ─── Locale dictionaries (flat dotted keys, {name} interpolation) ───────
+
+    const zh = {
+      'tabs.new': '新会话',
+      'tabs.untitled': '未命名',
+      'tabs.newSession': '新建会话',
+      'tabs.close': '关闭标签',
+      'tabs.closeLeft': '关闭左侧标签',
+      'tabs.closeRight': '关闭右侧标签',
+      'tabs.closeOthers': '关闭其他标签',
+      'tabs.closeAll': '关闭全部标签',
+    }
+
+    const en = {
+      'tabs.new': 'New Session',
+      'tabs.untitled': 'Untitled',
+      'tabs.newSession': 'New session',
+      'tabs.close': 'Close tab',
+      'tabs.closeLeft': 'Close tabs to the left',
+      'tabs.closeRight': 'Close tabs to the right',
+      'tabs.closeOthers': 'Close other tabs',
+      'tabs.closeAll': 'Close all tabs',
+    }
+
+    // ─── Styles: codeg's browser-tab look on the shell's theme tokens ───────
+
+    const styles = `
+/* codeg's layout, non-caption seating (browser, macOS): the session tab
+   strip is the conversation column's own top bar — a full-width row ABOVE
+   the session title row, not a chip inside it (codeg seats TabBar in the
+   column's h-10 strip; the detail header is a separate row below). The
+   shell's header is a two-column grid with this seat in its leading cell;
+   while the strip occupies the seat the header is re-stacked into a column
+   (its grid tracks become no-ops), so the leading seat — and with it the
+   strip — spans the column's full width and the title/actions row wraps
+   below it. The hairline under the seat is codeg's ws-strip-line. */
+html:not([data-windows-titlebar]) header:has(> [data-conversation-header-leading] .dshtb-strip) { display: flex; flex-direction: column; align-items: stretch; }
+html:not([data-windows-titlebar]) header:has(> [data-conversation-header-leading] .dshtb-strip) > [data-conversation-header-leading] { box-shadow: inset 0 -0.5px 0 var(--dsw-alias-border-l3); }
+/* Windows desktop: the strip leaves the header and seats itself in the
+   window's caption band — frameless titleBarStyle hidden leaves the band
+   to a painted drag strip (AppFrame's .frame::before) flanked by the
+   Desktop-owned caption menus (the fixed [data-windows-menu] host) on the
+   left and the native titleBarOverlay controls on the right. The strip goes
+   fixed between them: --dshtb-caption-left is measured at runtime as the
+   conversation column's left edge (the frame's --dsh-windows-sidebar-width,
+   never left of the menus host) — codeg seats the strip in the column, not
+   over the sidebar — and --dshtb-caption-right reserves the overlay's ~138px
+   plus a gap. app-region owns the drag here (base.css's data-window-drag
+   rule is darwin-scoped): the strip's own box drags and its controls opt
+   out — codeg's tail-spacer model, whole-strip edition. Out of flow, the
+   seat it came from collapses back into the header's leading grid cell. */
+html[data-windows-titlebar] .dshtb-strip { position: fixed; top: 0; left: var(--dshtb-caption-left, 156px); right: var(--dshtb-caption-right, 144px); height: var(--dsh-windows-titlebar-height, 40px); max-width: none; z-index: 1100; -webkit-app-region: drag; }
+html[data-windows-titlebar] .dshtb-tab,
+html[data-windows-titlebar] .dshtb-add { -webkit-app-region: no-drag; }
+/* The recall pulse (electron#32341): one frame as no-drag forces Electron to
+   recollect every app-region box after the strip's geometry moved. */
+html[data-windows-titlebar] .dshtb-strip[data-dshtb-pulse='1'] { -webkit-app-region: no-drag; }
+.dshtb-strip { position: relative; display: flex; align-items: center; gap: 2px; height: 34px; min-width: 0; flex: 1 1 auto; }
+.dshtb-tabs { display: flex; align-items: center; gap: 2px; height: 100%; min-width: 0; flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.dshtb-tabs::-webkit-scrollbar { display: none; }
+.dshtb-tab { position: relative; flex: 0 1 148px; min-width: 48px; max-width: 148px; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: none; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-family); font-size: 12px; line-height: 18px; white-space: nowrap; cursor: pointer; user-select: none; touch-action: manipulation; outline: none; }
+.dshtb-tab:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dshtb-tab[data-active='true'] { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2); }
+.dshtb-tab[data-dragging='true'] { z-index: 50; cursor: grabbing; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: 0 6px 18px rgb(0 0 0 / 28%); }
+.dshtb-tab:focus-visible { box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary); }
+.dshtb-tab-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent); }
+.dshtb-tab[data-blank='true'] .dshtb-tab-title { font-style: oblique; }
+.dshtb-tab-close { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: none; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; opacity: 0; pointer-events: none; }
+.dshtb-tab:hover .dshtb-tab-close, .dshtb-tab[data-active='true'] .dshtb-tab-close, .dshtb-tab:focus-visible .dshtb-tab-close { opacity: 1; pointer-events: auto; }
+.dshtb-tab-close:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dshtb-add { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: 2px; border: none; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dshtb-add:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dshtb-spacer { flex: 1 1 auto; min-width: 16px; height: 100%; }
+.dshtb-insert { position: absolute; top: 5px; bottom: 5px; width: 2px; border-radius: 1px; background: var(--dsw-alias-brand-primary); pointer-events: none; z-index: 60; }
+/* The background here is only the no-wallpaper fallback: with a wallpaper
+   on, TabMenu paints its own patch of the canvas inline (veil + image,
+   pixel-aligned via fixed attachment) and data-dshwp-selfpaint keeps the
+   wallpaper walk from booking the menu and wiping that recipe. */
+.dshtb-menu { position: fixed; z-index: 1200; min-width: 156px; padding: 5px; border-radius: 9px; border: 1px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-2); box-shadow: 0 10px 32px rgb(0 0 0 / 25%); }
+/* The menu opens right under the caption strip and can overlap it: above the
+   strip's z-index, and its own no-drag box so the window drag composition
+   (last matching box wins, DOM order) never swallows a menu press. */
+html[data-windows-titlebar] .dshtb-menu { -webkit-app-region: no-drag; }
+.dshtb-menu-item { display: flex; align-items: center; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font-size: 12.5px; line-height: 18px; text-align: left; cursor: pointer; }
+.dshtb-menu-item:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dshtb-menu-item:disabled { opacity: 0.45; cursor: default; }
+.dshtb-menu-sep { height: 1px; margin: 5px 4px; background: var(--dsw-alias-border-l3); }
+`
+
+    // ─── List projections (ports of the shell's own sidebar rules) ──────────
+
+    /** The session the main view currently retains — the strip's active tab. */
+    function mainSessionId(list) {
+      for (const id of list.ids) {
+        if ((list.byId[id]?.retainedBy?.mainView ?? 0) > 0) return id
+      }
+      return undefined
+    }
+
+    /**
+     * The strip's tabs: EVERY visible session of the profile — the strip is
+     * global, not workspace-scoped (codeg's strip shows the folder's
+     * conversations as one set). "Visible" follows the sidebar: subagent
+     * children, archived sessions and blank drafts other than the active one
+     * stay out; the strip's own closed set stays out too. Order is the
+     * strip's own durable order: sessions it already knows keep their stored
+     * positions; newcomers append at the end like a browser's new tab.
+     */
+    function deriveTabs(list, ws, order, closed) {
+      const byId = list.byId
+      const activeId = mainSessionId(list)
+      const archived = new Set(ws.archivedSessionIds)
+      const rank = new Map(order.map((id, index) => [id, index]))
+      const known = []
+      const fresh = []
+      for (const id of list.ids) {
+        const row = byId[id]
+        if (row === undefined || row.origin === 'subagent' || archived.has(id)) continue
+        if (closed.has(id)) continue
+        if (row.blank === true && id !== activeId) continue
+        const tab = { id, blank: row.blank === true, title: row.title, cwd: row.cwd, running: row.running === true }
+        if (rank.has(id)) known.push(tab)
+        else fresh.push(tab)
+      }
+      known.sort((a, b) => rank.get(a.id) - rank.get(b.id))
+      return { tabs: [...known, ...fresh], activeId }
+    }
+
+    /** Tab caption: the sidebar's own blank/untitled vocabulary. */
+    function tabTitle(tab, t) {
+      if (tab.blank) return t('tabs.new')
+      const title = tab.title?.trim()
+      return title === undefined || title === '' ? t('tabs.untitled') : title
+    }
+
+    /** Dot priority, as the sidebar's status line: pending interaction, then live work, then unread completion. */
+    function tabDotState(status, tab) {
+      const kind = status?.pendingInteraction?.kind
+      if (kind === 'approval' || kind === 'plan-review' || kind === 'question') return 'warning'
+      if ((status?.running ?? tab.running) === true) return 'ongoing'
+      if (status?.completionUnread === true) return 'done'
+      return 'idle'
+    }
+
+    // ─── Tab state (the strip's own order and closed set, both durable) ────
+
+    /**
+     * Closing a tab hides it; it never archives the session — the sidebar
+     * keeps the row, exactly as codeg's close never deletes the conversation.
+     * The closed set persists as id → hide-time. The hide-time is what lets
+     * the reopen-on-activate rule tell a deliberate sidebar click apart from
+     * a retain flap or a slot REMOUNT re-activating the session whose tab we
+     * just hid (a remount loses in-memory state but not this record, and the
+     * record is written synchronously — never inside a deferred setState
+     * updater, which a fast remount would outrun). Both set and order are
+     * global: the strip shows one tab set across workspaces. The legacy
+     * per-workspace and untimestamped stores are dropped.
+     */
+    const CLOSED_KEY = '@qwqweeo123/dsh-extend/tabbar/closed-v3'
+    const ORDER_KEY = '@qwqweeo123/dsh-extend/tabbar/order'
+    const LEGACY_CLOSED_KEYS = [
+      '@qwqweeo123/dsh-extend/tabbar/closed',
+      '@qwqweeo123/dsh-extend/tabbar/closed-v2',
+    ]
+
+    function loadClosedAt() {
+      for (const key of LEGACY_CLOSED_KEYS) {
+        try {
+          localStorage.removeItem(key)
+        } catch { /* ignore */ }
+      }
+      try {
+        const parsed = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? '{}')
+        const at = new Map()
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [id, t] of Object.entries(parsed)) {
+            if (typeof id === 'string' && id !== '') at.set(id, typeof t === 'number' ? t : 0)
+          }
+        }
+        return at
+      } catch {
+        return new Map()
+      }
+    }
+
+    function saveClosedAt(at) {
+      try {
+        localStorage.setItem(CLOSED_KEY, JSON.stringify(Object.fromEntries(at)))
+      } catch {
+        /* storage full or blocked: the in-memory state still works */
+      }
+    }
+
+    function loadIds(key) {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? '[]')
+        return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []
+      } catch {
+        return []
+      }
+    }
+
+    function saveIds(key, ids) {
+      try {
+        localStorage.setItem(key, JSON.stringify(ids))
+      } catch {
+        /* storage full or blocked: the in-memory state still works */
+      }
+    }
+
+    const loadOrder = () => loadIds(ORDER_KEY)
+    const saveOrder = (ids) => saveIds(ORDER_KEY, ids)
+
+    // ─── Shared UI pieces ───────────────────────────────────────────────────
+
+    /**
+     * Lightweight fixed context menu (the pet menu's pattern, tab-scoped).
+     *
+     * The menu paints its own patch of the wallpaper rather than being truly
+     * translucent: the recipe the wallpaper module publishes (--dshwp-image
+     * is viewport-fixed, so the patch lines up pixel-for-pixel with the
+     * canvas; --dshwp-veil rides the same mask opacity as the conversation
+     * surfaces) is applied INLINE — the composer's own delivery path, which
+     * survives where a stylesheet + pseudo-element chain did not — and
+     * `data-dshwp-selfpaint` keeps the wallpaper walk from booking the menu
+     * and wiping the recipe. The composite is opaque: the wallpaper region
+     * shows, the text beneath never can. Without a wallpaper the CSS keeps
+     * the opaque panel colour.
+     */
+    function TabMenu({ x, y, items, onClose }) {
+      const ref = useRef(null)
+      useEffect(() => {
+        const el = ref.current
+        if (el === null) return
+        const rootStyle = getComputedStyle(document.documentElement)
+        const image = rootStyle.getPropertyValue('--dshwp-image').trim()
+        if (image === '' || image === 'none') return
+        let veil = rootStyle.getPropertyValue('--dshwp-veil').trim()
+        if (veil === '') {
+          // Rebuild the veil from the wallpaper settings + theme token if the
+          // menu ever opens before the wallpaper module publishes it.
+          let mask = 0.82
+          try {
+            const parsed = JSON.parse(localStorage.getItem('dsh.wallpaper.display') ?? '{}')
+            if (Number.isFinite(Number(parsed?.maskOpacity))) mask = Number(parsed.maskOpacity)
+          } catch { /* keep the default */ }
+          const base = getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim() || 'black'
+          veil = `color-mix(in srgb, ${base} ${Math.round(mask * 100)}%, transparent)`
+        }
+        const size = rootStyle.getPropertyValue('--dshwp-fill-size').trim() || 'cover'
+        const repeat = rootStyle.getPropertyValue('--dshwp-fill-repeat').trim() || 'no-repeat'
+        el.style.backgroundColor = 'transparent'
+        el.style.backgroundImage = `linear-gradient(${veil}, ${veil}), ${image}`
+        el.style.backgroundSize = `auto, ${size}`
+        el.style.backgroundRepeat = `no-repeat, ${repeat}`
+        el.style.backgroundPosition = 'center, center'
+        el.style.backgroundAttachment = 'scroll, fixed'
+      }, [])
+      useEffect(() => {
+        const onPointerDown = (event) => {
+          if (ref.current !== null && !ref.current.contains(event.target)) onClose()
+        }
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation()
+            onClose()
+          }
+        }
+        window.addEventListener('pointerdown', onPointerDown, true)
+        window.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('blur', onClose)
+        return () => {
+          window.removeEventListener('pointerdown', onPointerDown, true)
+          window.removeEventListener('keydown', onKeyDown, true)
+          window.removeEventListener('blur', onClose)
+        }
+      }, [onClose])
+      const style = {
+        left: Math.max(4, Math.min(x, window.innerWidth - 180)),
+        top: Math.max(4, Math.min(y, window.innerHeight - items.length * 32 - 16)),
+      }
+      return h(
+        'div',
+        { className: 'dshtb-menu', ref, style, role: 'menu', 'data-dshwp-selfpaint': '' },
+        items.map((item, index) =>
+          item === null
+            ? h('div', { key: `sep-${index}`, className: 'dshtb-menu-sep' })
+            : h(
+                'button',
+                {
+                  key: item.id,
+                  type: 'button',
+                  className: 'dshtb-menu-item',
+                  role: 'menuitem',
+                  disabled: item.disabled === true,
+                  onClick: () => {
+                    onClose()
+                    item.run()
+                  },
+                },
+                item.label
+              )
+        )
+      )
+    }
+
+    /**
+     * Pointer-based horizontal drag reorder: codeg's strip builds the gesture
+     * on motion's Reorder; this port keeps the gesture without the dependency.
+     * Pressing past a 5px threshold lifts the tab (it follows the pointer and
+     * gains a shadow), a brand-coloured insertion line previews the landing
+     * gap hit-tested from sibling midpoints (codeg's dropIndexFromMidpoints),
+     * and release commits the move into the strip's own durable order. A press
+     * released below the threshold is the switch-tab click.
+     */
+    function useTabDrag({ stripRef, tabsRef, reorder, open }) {
+      const [drag, setDrag] = useState(null)
+
+      const begin = useCallback(
+        (event, id) => {
+          if (event.button !== 0) return
+          // Any press on the close control is its business, never a switch.
+          if (event.target.closest('[data-dshtb-close], button') !== null) return
+          const startX = event.clientX
+          let moved = false
+          let targetId
+          let previousSelect = ''
+          const onMove = (ev) => {
+            const dx = ev.clientX - startX
+            if (!moved) {
+              if (Math.abs(dx) < 5) return
+              if (tabsRef.current.length < 2) return
+              moved = true
+              // Every tab drag suppresses text selection document-wide until
+              // release (codeg's drag-selection guard).
+              previousSelect = document.body.style.userSelect
+              document.body.style.userSelect = 'none'
+            }
+            const strip = stripRef.current
+            if (strip === null) return
+            const mids = []
+            for (const el of strip.querySelectorAll('[data-dshtb-tab]')) {
+              const tabId = el.getAttribute('data-dshtb-tab')
+              if (tabId === id) continue
+              const rect = el.getBoundingClientRect()
+              mids.push({ id: tabId, mid: rect.left + rect.width / 2, left: rect.left, right: rect.right })
+            }
+            mids.sort((a, b) => a.mid - b.mid)
+            let index = mids.length
+            for (let i = 0; i < mids.length; i += 1) {
+              if (ev.clientX < mids[i].mid) {
+                index = i
+                break
+              }
+            }
+            const stripRect = strip.getBoundingClientRect()
+            let insertX
+            if (mids.length === 0) insertX = 4
+            else if (index === 0) insertX = mids[0].left - stripRect.left - 3
+            else if (index === mids.length) insertX = mids[mids.length - 1].right - stripRect.left + 1
+            else insertX = (mids[index - 1].right + mids[index].left) / 2 - stripRect.left - 1
+            targetId = index < mids.length ? mids[index].id : null
+            setDrag({ id, dx, insertX })
+          }
+          const cleanup = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+            window.removeEventListener('pointercancel', onCancel)
+            if (moved) document.body.style.userSelect = previousSelect
+          }
+          const onUp = () => {
+            cleanup()
+            setDrag(null)
+            if (!moved) {
+              open(id)
+              return
+            }
+            if (targetId === undefined) return
+            const ids = tabsRef.current.map((tab) => tab.id)
+            const others = ids.filter((tabId) => tabId !== id)
+            const to = targetId === null ? others.length : others.indexOf(targetId)
+            if (to === -1) return
+            const next = [...others.slice(0, to), id, ...others.slice(to)]
+            if (next.every((tabId, i) => tabId === ids[i])) return
+            reorder(next)
+          }
+          const onCancel = () => {
+            cleanup()
+            setDrag(null)
+          }
+          window.addEventListener('pointermove', onMove)
+          window.addEventListener('pointerup', onUp)
+          window.addEventListener('pointercancel', onCancel)
+        },
+        [stripRef, tabsRef, reorder, open]
+      )
+
+      return { drag, begin }
+    }
+
+    // ─── Tab item (codeg's TabItem, embedded browser-style variant) ─────────
+
+    const TabItem = React.memo(function TabItem(props) {
+      const { tab, title, active, dotState, tooltip, closeLabel, dragging, dragDx, onPress, onOpen, onClose, onMenu } = props
+      return h(
+        'div',
+        {
+          role: 'tab',
+          'aria-selected': active,
+          tabIndex: 0,
+          'data-dshtb-tab': tab.id,
+          'data-active': active ? 'true' : undefined,
+          'data-blank': tab.blank ? 'true' : undefined,
+          'data-dragging': dragging ? 'true' : undefined,
+          className: 'dshtb-tab',
+          style: dragging ? { transform: `translateX(${dragDx}px)` } : undefined,
+          title: tooltip,
+          onPointerDown: (event) => onPress(event, tab.id),
+          onMouseDown: (event) => {
+            // codeg: middle click closes the tab.
+            if (event.button === 1) {
+              event.preventDefault()
+              onClose(tab.id)
+            }
+          },
+          onContextMenu: (event) => {
+            event.preventDefault()
+            onMenu(tab.id, event.clientX, event.clientY)
+          },
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              onOpen(tab.id)
+            }
+          },
+        },
+        dotState !== 'idle' ? h(StateDot, { state: dotState, size: 10 }) : null,
+        h('span', { className: 'dshtb-tab-title' }, title),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dshtb-tab-close',
+            'data-dshtb-close': '',
+            'aria-label': closeLabel,
+            title: closeLabel,
+            tabIndex: -1,
+            // Close on the PRESS, not the click. In the caption seating the
+            // click is the fragile half of the gesture: a press the native
+            // window-drag layer still owns (stale rects, electron#32341)
+            // never becomes a click, and the press that misses this button
+            // falls through to the tab's own press-to-switch — which is the
+            // "first click switches, second click closes" bug. preventDefault
+            // keeps the compat mouse click from double-firing the close.
+            onPointerDown: (event) => {
+              if (event.button !== 0) return
+              event.stopPropagation()
+              event.preventDefault()
+              onClose(tab.id)
+            },
+            onClick: (event) => {
+              event.stopPropagation()
+              onClose(tab.id)
+            },
+          },
+          h(IconCloseOutlineRegular, { size: 12 })
+        )
+      )
+    })
+
+    // ─── The strip (codeg's TabBar) ─────────────────────────────────────────
+
+    function SessionTabBar(props) {
+      const { useSessions, useWorkspaces, useSessionStatus, controller, t } = props
+      const list = useSessions((s) => s)
+      const ws = useWorkspaces((s) => s)
+      const statuses = useSessionStatus((s) => s)
+      // The hide-times persist with the set (loadClosedAt), so the flap
+      // guard below survives the strip's own remount mid-switch.
+      const closedAtRef = useRef(null)
+      if (closedAtRef.current === null) closedAtRef.current = loadClosedAt()
+      const [closed, setClosed] = useState(() => new Set(closedAtRef.current.keys()))
+      const [order, setOrder] = useState(loadOrder)
+
+      const { tabs, activeId } = useMemo(() => deriveTabs(list, ws, order, closed), [list, ws, order, closed])
+
+      const stripRef = useRef(null)
+      const tabsRef = useRef(tabs)
+      tabsRef.current = tabs
+      const activeIdRef = useRef(activeId)
+      activeIdRef.current = activeId
+      const closedRef = useRef(closed)
+      closedRef.current = closed
+
+      const [menu, setMenu] = useState(null)
+
+      /**
+       * The order tracks every session the Host lists, visible or not:
+       * closed and archived sessions keep their slots (a restored tab lands
+       * where it left), an id is pruned only once the session itself is
+       * gone, and ids the strip has never seen append at the end.
+       */
+      useEffect(() => {
+        setOrder((prev) => {
+          const alive = new Set(list.ids)
+          const kept = prev.filter((id) => alive.has(id))
+          const known = new Set(kept)
+          const next = [...kept]
+          let changed = kept.length !== prev.length
+          for (const id of list.ids) {
+            if (!known.has(id)) {
+              next.push(id)
+              changed = true
+            }
+          }
+          if (!changed) return prev
+          saveOrder(next)
+          return next
+        })
+      }, [list.ids])
+
+      /**
+       * Newcomers always land at the end. A tab that was not visible in the
+       * previous render — a freshly created Session, one reopened from the
+       * closed set, an unarchived row — moves behind every tab that was
+       * already showing, in the order it appeared, however it came back.
+       * The seeding render (mount, or the first paint after a remount) only
+       * records the visible set, so a restored strip keeps the order the
+       * user left; every later addition follows the one rule: 新增标签
+       * 统一排在最后面.
+       */
+      const visibleIdsRef = useRef(null)
+      const visibleKey = tabs.map((tab) => tab.id).join(' ')
+      useEffect(() => {
+        const currentIds = visibleKey === '' ? [] : visibleKey.split(' ')
+        const previous = visibleIdsRef.current
+        visibleIdsRef.current = currentIds
+        if (previous === null) return
+        const seen = new Set(previous)
+        const newcomers = currentIds.filter((id) => !seen.has(id))
+        if (newcomers.length === 0) return
+        setOrder((prev) => {
+          const next = prev.filter((id) => !newcomers.includes(id))
+          for (const id of newcomers) next.push(id)
+          saveOrder(next)
+          return next
+        })
+      }, [visibleKey])
+
+      /**
+       * Commit the closed set synchronously: ref, durable record (with
+       * hide-times) and React state move together inside the gesture — never
+       * inside a deferred setState updater, which a fast remount of the
+       * strip would outrun (the remount would then reload a closed set that
+       * does not contain the tab yet and show it again).
+       */
+      const commitClosed = useCallback((next) => {
+        closedRef.current = next
+        const at = new Map()
+        for (const id of next) at.set(id, closedAtRef.current.get(id) ?? 0)
+        closedAtRef.current = at
+        saveClosedAt(at)
+        setClosed(next)
+      }, [])
+
+      /** Hide tabs. Never archives: the sessions stay in the sidebar. */
+      const hideTabs = useCallback(
+        (ids) => {
+          if (ids.length === 0) return
+          const now = Date.now()
+          for (const id of ids) closedAtRef.current.set(id, now)
+          const next = new Set(closedRef.current)
+          let changed = false
+          for (const id of ids) {
+            if (!next.has(id)) {
+              next.add(id)
+              changed = true
+            }
+          }
+          if (!changed) return
+          commitClosed(next)
+        },
+        [commitClosed]
+      )
+
+      /**
+       * Reopen on activate: clicking the session in the sidebar (or any other
+       * navigation that changes the retained session) brings its tab back.
+       * Only a real switch clears the closed mark, so closing the ACTIVE tab
+       * is not undone by its own still-active state. The ref starts empty so
+       * the rule also covers the mount itself: the session the main view
+       * restores with always has its tab — the strip's one invariant is that
+       * the session on screen is never tab-less.
+       *
+       * The flap guard: closing the active tab hides it AND seats the
+       * neighbour in the same gesture, but the neighbour's open is async —
+       * while it is in flight the Host can re-activate the just-closed
+       * session (a retain release-and-restore, or the seat remounting and
+       * re-reading the still-active id), which looked exactly like a reopen
+       * and resurrected the tab. A tab hidden within the last second is
+       * never unhidden by an activation; a deliberate sidebar click past
+       * that window still brings it back. The hide-times persist with the
+       * set precisely so this guard survives the remount.
+       */
+      const prevActiveRef = useRef(undefined)
+      useEffect(() => {
+        const prev = prevActiveRef.current
+        prevActiveRef.current = activeId
+        if (activeId === undefined || activeId === prev) return
+        if (!closedRef.current.has(activeId)) return
+        const at = closedAtRef.current.get(activeId) ?? 0
+        if (Date.now() - at < 1000) return
+        const next = new Set(closedRef.current)
+        next.delete(activeId)
+        commitClosed(next)
+      }, [activeId, commitClosed])
+
+      /**
+       * Drag commit, fully local: rewrite the visible order; sessions the
+       * strip is hiding keep their slots in the stored order (the visible
+       * subsequence is replaced in place), and a dragged id the order had
+       * not persisted yet appends at the end.
+       */
+      const reorder = useCallback((nextVisible) => {
+        setOrder((prev) => {
+          const visible = new Set(nextVisible)
+          const queue = [...nextVisible]
+          const next = []
+          for (const id of prev) next.push(visible.has(id) ? queue.shift() : id)
+          for (const id of queue) next.push(id)
+          saveOrder(next)
+          return next
+        })
+      }, [])
+
+      /**
+       * electron#32341, Windows edition: the native window keeps the drag
+       * rects it collected until a style pass changes some element's computed
+       * app-region value — and the shell's own recall watcher installs only
+       * on darwin. The hoisted strip's boxes (the strip's drag, each tab's
+       * no-drag) move with every open/close/reorder/measure, so a tab the
+       * window still records as caption drag swallows its press. Pulse the
+       * strip's own app-region across two frames (drag → no-drag → drag):
+       * each pass forces a recollection and the final one reads the live
+       * geometry.
+       */
+      const recallFrameRef = useRef(null)
+      const pulseDragRecall = useCallback(() => {
+        const strip = stripRef.current
+        if (strip === null || !document.documentElement.hasAttribute('data-windows-titlebar')) return
+        if (recallFrameRef.current !== null) cancelAnimationFrame(recallFrameRef.current)
+        strip.dataset.dshtbPulse = '1'
+        recallFrameRef.current = requestAnimationFrame(() => {
+          recallFrameRef.current = null
+          delete strip.dataset.dshtbPulse
+        })
+      }, [])
+
+      useEffect(() => {
+        pulseDragRecall()
+        window.addEventListener('resize', pulseDragRecall)
+        return () => {
+          window.removeEventListener('resize', pulseDragRecall)
+          if (recallFrameRef.current !== null) {
+            cancelAnimationFrame(recallFrameRef.current)
+            recallFrameRef.current = null
+          }
+          const strip = stripRef.current
+          if (strip !== null) delete strip.dataset.dshtbPulse
+        }
+      }, [pulseDragRecall, tabs.length])
+
+      /**
+       * Windows caption seating: the strip goes fixed between the sidebar
+       * column and the native window controls. Its left edge is the
+       * CONVERSATION COLUMN's left edge — codeg seats the strip in the
+       * column, never over the sidebar — read from the frame's published
+       * --dsh-windows-sidebar-width; a collapsed (zero-width) sidebar keeps
+       * its controls in the caption, so the edge never goes left of the
+       * Desktop-owned menus host. The frame's style attribute covers sidebar
+       * drags and collapse (the var moves with both), the ResizeObserver
+       * covers locale-driven menu width changes, and the one-shot body
+       * observer waits out the preload, which mounts the menus only once the
+       * shell overlay exists.
+       */
+      useEffect(() => {
+        if (!document.documentElement.hasAttribute('data-windows-titlebar')) return undefined
+        let menus = null
+        // The AppFrame root publishes the sidebar column's live width in its
+        // inline style (a React style prop) — find it by that signature and
+        // read the property inline rather than walking to a child of #root:
+        // the slot outlet wraps the frame in a display:contents anchor, so
+        // the walk stops one element short of the frame itself.
+        let frame = null
+        let frameObserver = null
+        function watchFrame() {
+          if (frame !== null) return
+          frame = document.querySelector('[style*="--dsh-windows-sidebar-width"]')
+          if (frame === null) return
+          frameObserver = new MutationObserver(measure)
+          frameObserver.observe(frame, { attributes: true, attributeFilter: ['style'] })
+        }
+        function measure() {
+          watchFrame()
+          let left = 0
+          if (frame !== null) {
+            const width = Number.parseFloat(frame.style.getPropertyValue('--dsh-windows-sidebar-width'))
+            if (Number.isFinite(width) && width > 0) left = Math.round(width) + 6
+          }
+          if (menus !== null) left = Math.max(left, Math.round(menus.getBoundingClientRect().right) + 8)
+          if (left <= 0) return
+          document.documentElement.style.setProperty('--dshtb-caption-left', `${left}px`)
+          pulseDragRecall()
+        }
+        let findObserver = null
+        let sizeObserver = null
+        const attach = () => {
+          menus = document.querySelector('[data-windows-menu]')
+          if (menus === null) return false
+          measure()
+          sizeObserver = new ResizeObserver(measure)
+          sizeObserver.observe(menus)
+          return true
+        }
+        if (!attach()) {
+          findObserver = new MutationObserver(() => {
+            if (attach()) {
+              findObserver.disconnect()
+              findObserver = null
+            }
+          })
+          findObserver.observe(document.body, { childList: true, subtree: true })
+        }
+        measure()
+        window.addEventListener('resize', measure)
+        return () => {
+          findObserver?.disconnect()
+          sizeObserver?.disconnect()
+          frameObserver?.disconnect()
+          window.removeEventListener('resize', measure)
+          document.documentElement.style.removeProperty('--dshtb-caption-left')
+        }
+      }, [pulseDragRecall])
+
+      const closeOne = useCallback(
+        (id) => {
+          const current = tabsRef.current
+          const remaining = current.filter((tab) => tab.id !== id)
+          // Seat the neighbour first so the main view keeps its session
+          // (codeg seats the neighbour before the tab leaves the strip).
+          if (id === activeIdRef.current && remaining.length > 0) {
+            const index = current.findIndex((tab) => tab.id === id)
+            controller.open(remaining[Math.min(index, remaining.length - 1)].id)
+          }
+          hideTabs([id])
+        },
+        [controller, hideTabs]
+      )
+
+      const closeOthers = useCallback(
+        (id) => {
+          if (id !== activeIdRef.current) controller.open(id)
+          hideTabs(tabsRef.current.filter((tab) => tab.id !== id).map((tab) => tab.id))
+        },
+        [controller, hideTabs]
+      )
+
+      const closeSide = useCallback(
+        (id, side) => {
+          const current = tabsRef.current
+          const index = current.findIndex((tab) => tab.id === id)
+          if (index === -1) return
+          const ids = (side === 'left' ? current.slice(0, index) : current.slice(index + 1)).map((tab) => tab.id)
+          if (ids.length === 0) return
+          // The context tab survives; when the active tab is among the
+          // closing ones, seat the context tab first so the main view keeps
+          // its session.
+          if (ids.includes(activeIdRef.current)) controller.open(id)
+          hideTabs(ids)
+        },
+        [controller, hideTabs]
+      )
+
+      const closeAll = useCallback(() => {
+        hideTabs(tabsRef.current.map((tab) => tab.id))
+      }, [hideTabs])
+
+      const { drag, begin } = useTabDrag({
+        stripRef,
+        tabsRef,
+        reorder,
+        open: controller.open,
+      })
+
+      // codeg: the active tab scrolls into view when it changes.
+      useEffect(() => {
+        if (activeId === undefined || stripRef.current === null) return
+        const el = stripRef.current.querySelector(`[data-dshtb-tab="${CSS.escape(activeId)}"]`)
+        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }, [activeId])
+
+      const onMenu = useCallback((id, x, y) => setMenu({ id, x, y }), [])
+      const closeMenu = useCallback(() => setMenu(null), [])
+
+      const menuIndex = menu === null ? -1 : tabs.findIndex((tab) => tab.id === menu.id)
+      const menuItems =
+        menu === null
+          ? []
+          : [
+              { id: 'close', label: t('tabs.close'), run: () => closeOne(menu.id) },
+              null,
+              { id: 'closeLeft', label: t('tabs.closeLeft'), disabled: menuIndex <= 0, run: () => closeSide(menu.id, 'left') },
+              {
+                id: 'closeRight',
+                label: t('tabs.closeRight'),
+                disabled: menuIndex === -1 || menuIndex >= tabs.length - 1,
+                run: () => closeSide(menu.id, 'right'),
+              },
+              { id: 'closeOthers', label: t('tabs.closeOthers'), disabled: tabs.length < 2, run: () => closeOthers(menu.id) },
+              null,
+              { id: 'closeAll', label: t('tabs.closeAll'), disabled: tabs.length === 0, run: closeAll },
+            ]
+
+      return h(
+        React.Fragment,
+        null,
+        h('style', STYLE_ATTRS, styles),
+        h(
+          'div',
+          { className: 'dshtb-strip', role: 'tablist', ref: stripRef },
+          h(
+            'div',
+            { className: 'dshtb-tabs' },
+            tabs.map((tab) => {
+              const title = tabTitle(tab, t)
+              const tooltip = tab.cwd === undefined || tab.cwd === '' ? title : `${title}\n${tab.cwd}`
+              return h(TabItem, {
+                key: tab.id,
+                tab,
+                title,
+                active: tab.id === activeId,
+                dotState: tabDotState(statuses?.get(tab.id), tab),
+                tooltip,
+                closeLabel: t('tabs.close'),
+                dragging: drag !== null && drag.id === tab.id,
+                dragDx: drag?.dx ?? 0,
+                onPress: begin,
+                onOpen: controller.open,
+                onClose: closeOne,
+                onMenu,
+              })
+            })
+          ),
+          // The new-conversation affordance at the end of the strip: codeg's
+          // circular compose button, here opening a draft in the current
+          // workspace (or the hero picker when no workspace resolves, so the
+          // button is never a dead end).
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dshtb-add',
+              'aria-label': t('tabs.newSession'),
+              title: t('tabs.newSession'),
+              onClick: () => controller.start(),
+            },
+            h(IconNewChatOutlineRegular, { size: 14 })
+          ),
+          h('div', { className: 'dshtb-spacer', 'data-window-drag': true }),
+          drag !== null ? h('div', { className: 'dshtb-insert', style: { left: drag.insertX } }) : null
+        ),
+        menu !== null ? h(TabMenu, { x: menu.x, y: menu.y, items: menuItems, onClose: closeMenu }) : null
+      )
+    }
+
+    // ─── Plugin entry ───────────────────────────────────────────────────────
+
+    return {
+      inject: ['slots', 'locale', 'uiWorkspace'],
+      apply(ctx) {
+        ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'tabbar: dictionaries')
+        const { uiWorkspace } = ctx
+        const controller = {
+          open: (id) => uiWorkspace.openSession(id),
+          start: () => uiWorkspace.startSession(),
+        }
+        ctx.slots.inject('conversation.header.leading', () =>
+          ctx.slots.register(
+            {
+              name: 'conversation.header.leading',
+              id: 'dsh-tabbar',
+              locale: NS,
+              inject: () => ({ controller }),
+            },
+            SessionTabBar
+          )
+        )
+      },
+    }
+  },
+})
+
+// ─── Workspace suite (default-Workspace policy) ────────────────────────────
+//
+// Three behaviors the shell does not ship, all centered on the default
+// Workspace (`<Documents>/deepseek-harness/default-workspace`):
+//
+// - Removed actions button: the default row's "…" button (Rename/Delete
+//   menu) is not rendered at all — display:none from mount, re-applied on
+//   every remount — so the menu cannot be opened; the "+" new-session
+//   button beside it stays.
+// - Hidden Delete entry: if the actions menu ever opens anyway (future
+//   shell UI, keyboard paths), the default row's menu gets its danger-
+//   styled Delete row removed as soon as the menu mounts (and the row is
+//   disabled for the keyboard walk) — the option is never offered.
+// - Delete guard: the default Workspace's registration can no longer be
+//   removed. Every UI deletion path funnels through the client Workspace
+//   model's `delete`, which now refuses the default row; the sidebar's
+//   confirm dialog shows the refusal as its error line.
+// - Sidebar fold: every Session whose directory lives INSIDE the default
+//   Workspace (the random per-session folders this module creates, and the
+//   implicit Workspace records the Host adopts for them after a restart)
+//   is presented as a member of the default Workspace group, never as its
+//   own group and never in the Ungrouped bucket.
+// - Random session workspaces: creating a Session in the default Workspace
+//   passes through unchanged (the Session is born at the workspace root,
+//   and the shell's blank-reuse adoption keeps one pending Session per
+//   click). The random `ws-xxxxxxxx` per-session folder is created lazily
+//   when the Session's FIRST prompt is actually sent — the prompt is
+//   transparently re-homed into a fresh folder Session, the view swaps
+//   onto it, and later prompts follow — so clicking "+" never litters
+//   empty folders; only a Session that really received a message owns one.
+
+window.__ModuleLoader__.load({
+  id: '@qwqweeo123/dsh-extend/workspace-suite',
+  factory(require) {
+    const NS = 'workspace-suite'
+
+    // ─── Locale dictionaries (flat dotted keys) ───────────────────────────
+
+    const zh = {
+      'default.locked': '默认工作区不可删除',
+      'default.createFailed': '创建随机工作区失败，已回退到默认行为',
+    }
+
+    const en = {
+      'default.locked': 'The default workspace cannot be deleted',
+      'default.createFailed': 'Failed to create the random workspace; fell back to the default behavior',
+    }
+
+    // ─── Default-Workspace recognition ────────────────────────────────────
+
+    /** Automatic first-use title; the registry derives it from the directory. */
+    const DEFAULT_WORKSPACE_DIRECTORY = 'default-workspace'
+
+    /**
+     * True for the default Workspace row: either it still carries the
+     * automatic title, or its path is the automatic first-use directory
+     * (a renamed default stays recognizable by its path).
+     */
+    function isDefaultWorkspaceLike(workspace) {
+      if (workspace === undefined || workspace === null) return false
+      if (workspace.title === DEFAULT_WORKSPACE_DIRECTORY) return true
+      const path = String(workspace.path ?? '').replace(/[/\\]+$/, '')
+      return /[/\\]deepseek-harness[/\\]default-workspace$/.test(path)
+    }
+
+    /** Separator-normalized, trailing-slash-stripped comparison form. */
+    function normalizePathForCompare(path) {
+      let normalized = String(path ?? '')
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+      if (/^[a-zA-Z]:\//.test(normalized)) normalized = normalized.toLowerCase()
+      return normalized
+    }
+
+    /** True when `path` names a directory strictly inside `base`. */
+    function isStrictlyInside(path, base) {
+      const child = normalizePathForCompare(path)
+      const parent = normalizePathForCompare(base)
+      return child.length > parent.length && child.startsWith(parent + '/')
+    }
+
+    /** Random hex segment for the per-session workspace folder name. */
+    function randomHex(bytes) {
+      if (globalThis.crypto?.getRandomValues !== undefined) {
+        const value = new Uint8Array(bytes)
+        globalThis.crypto.getRandomValues(value)
+        return [...value].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+      }
+      let text = ''
+      while (text.length < bytes * 2) text += Math.random().toString(16).slice(2)
+      return text.slice(0, bytes * 2)
+    }
+
+    /**
+     * Install `patched` in place of `target[key]`, tolerating hosts that
+     * freeze service instances: plain assignment first, then the method's
+     * prototype. Returns false when neither sticks so callers fail loud
+     * instead of silently shipping the stock behavior.
+     */
+    function installPatched(target, key, patched) {
+      if (target === undefined || target === null) return false
+      try {
+        target[key] = patched
+        if (target[key] === patched) return true
+      } catch {
+        /* frozen instance: try the prototype */
+      }
+      try {
+        const proto = Object.getPrototypeOf(target)
+        const descriptor = proto === null ? undefined : Reflect.getOwnPropertyDescriptor(proto, key)
+        if (proto !== null && descriptor !== undefined && typeof descriptor.value === 'function') {
+          Object.defineProperty(proto, key, { ...descriptor, value: patched })
+          return true
+        }
+      } catch {
+        /* unpatchable: report below */
+      }
+      return false
+    }
+
+    // ─── Behavior 1: remove the default Workspace's "…" actions button ──────
+
+    /**
+     * The compiled sidebar renders an actions ("…") button on every real
+     * Workspace row, opening the Rename/Delete menu. For the default
+     * Workspace the whole button is removed instead: display:none from
+     * the moment the row mounts, so the menu can never open — no Delete
+     * to hide, no Rename to misclick. The "+" new-session button beside
+     * it is untouched.
+     *
+     * Rows are recognized by `data-row-key="workspace:<id>"` and matched
+     * against the live workspace snapshot (title- or path-based, so a
+     * renamed default row still qualifies). The button is found by its
+     * workspace-actions aria label (zh and en dictionaries); when the
+     * label is not recognized NOTHING is hidden — failing to recognize
+     * the layout must never remove the wrong control. React re-renders
+     * keep the DOM node (the button has no managed style prop), so the
+     * inline display survives; a permanent childList-only observer
+     * re-applies the removal whenever a row is remounted (view switches,
+     * tree rebuilds). The observer watches added subtrees only, never
+     * rescans the document, so chat-stream appends stay cheap.
+     */
+    function hideDefaultWorkspaceActions(ctx) {
+      if (typeof document === 'undefined') return
+      if (document.__dshExtendDefaultWsHideActions === true) return
+
+      /** aria-label patterns of the row's actions button (shell dicts). */
+      const ACTIONS_ARIA = /^工作区“.+”的操作$|^Workspace actions for .+$/s
+
+      /** Live ids of every default-Workspace row (title- or path-matched). */
+      const defaultWorkspaceIds = () => {
+        try {
+          const items = ctx.workspaces?.list?.getSnapshot?.().items ?? []
+          return new Set(items.filter(isDefaultWorkspaceLike).map((item) => String(item.workspaceId)))
+        } catch {
+          return new Set()
+        }
+      }
+
+      /** Hide the actions button of one workspace row, if it is default. */
+      const processRow = (row) => {
+        if (row.__dshExtendWsActionsHidden === true) return
+        const key = row.getAttribute?.('data-row-key') ?? ''
+        const prefix = 'workspace:'
+        if (!key.startsWith(prefix)) return
+        const id = key.slice(prefix.length)
+        if (id === '' || !defaultWorkspaceIds().has(id)) return
+        const buttons = Array.from(row.querySelectorAll('button'))
+        const target = buttons.find((button) => ACTIONS_ARIA.test(button.getAttribute('aria-label') ?? ''))
+        if (target === undefined) return
+        target.style.display = 'none'
+        row.__dshExtendWsActionsHidden = true
+      }
+
+      const handleAdded = (node) => {
+        if (!(node instanceof Element)) return
+        if (node instanceof HTMLElement && node.hasAttribute('data-row-key')) processRow(node)
+        const rows = node.querySelectorAll?.('[data-row-key]') ?? []
+        for (const row of rows) processRow(row)
+      }
+
+      // Rows already mounted before this module applied.
+      for (const row of document.querySelectorAll('[data-row-key]')) processRow(row)
+
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) handleAdded(node)
+        }
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+
+      document.__dshExtendDefaultWsHideActions = true
+      console.info('[dsh-extend] workspace-suite: default-workspace "…" actions button removed (Delete menu unreachable)')
+    }
+
+    // ─── Behavior 2: hide the Delete row if the actions menu still opens ────
+
+    /**
+     * Fallback behind Behavior 1: should the default row's actions menu
+     * ever open anyway (future shell UI, keyboard paths), the compiled
+     * sidebar always renders a Delete row in a real Workspace's "…" menu;
+     * the model guard below can only refuse the deletion after the fact.
+     * This behavior removes the entry up front: a capture-phase click
+     * inside the default row arms a short watch, and the portaled
+     * `[role="menu"]` that mounts beneath the row has its danger-styled
+     * Delete row hidden (and its button disabled, so the keyboard walk
+     * skips it too). The menu is recognized by seat, not by locale: the
+     * portaled surface is claimed only when its fixed position lands
+     * within the row's box or a short apron below it (the surface seats
+     * on the centered ellipsis button, so its top edge can overlap the
+     * row by up to ~20px). The model guard stays as the last line of
+     * defense for every residual deletion path (shortcuts, future UI,
+     * programmatic calls).
+     */
+    function hideDefaultWorkspaceDelete(ctx) {
+      if (typeof document === 'undefined') return
+      if (document.__dshExtendDefaultWsHideDelete === true) return
+
+      /** Claim marker written onto menus this behavior has processed. */
+      const CLAIM_ATTR = 'data-dsh-extend-ws-delete'
+
+      /** Live ids of every default-Workspace row (title- or path-matched). */
+      const defaultWorkspaceIds = () => {
+        try {
+          const items = ctx.workspaces?.list?.getSnapshot?.().items ?? []
+          return new Set(items.filter(isDefaultWorkspaceLike).map((item) => String(item.workspaceId)))
+        } catch {
+          return new Set()
+        }
+      }
+
+      /**
+       * The Delete row is the only danger-styled entry of this menu, i.e.
+       * the `menuitem` whose class list owns a class no sibling item has
+       * (hash names rotate between builds; relative comparison does not).
+       * The known zh/en labels disambiguate when styling alone cannot.
+       * Either way, the row is touched only when it is also the LAST item,
+       * which is this menu's fixed [Rename, Delete] order today.
+       */
+      const findDeleteItem = (menu) => {
+        const items = Array.from(menu.querySelectorAll('button[role="menuitem"]'))
+        if (items.length < 2) return null
+        const counts = new Map()
+        for (const item of items) {
+          for (const cls of item.classList) counts.set(cls, (counts.get(cls) ?? 0) + 1)
+        }
+        const unique = items.filter((item) => [...item.classList].some((cls) => counts.get(cls) === 1))
+        const candidates = unique.length === 1 ? [unique[0]] : items
+        const labels = new Set(['删除工作区', 'Delete workspace'])
+        const labelled = candidates.filter((item) => labels.has(item.textContent.trim()))
+        const pick = labelled.length === 1 ? labelled[0] : unique.length === 1 ? unique[0] : null
+        return pick === items[items.length - 1] ? pick : null
+      }
+
+      let armed = null // { top, bottom, left, right, until } of the clicked default row
+      let observer = null
+      let failsafe = 0
+
+      const disarm = () => {
+        armed = null
+        if (observer !== null) {
+          observer.disconnect()
+          observer = null
+        }
+        if (failsafe !== 0) {
+          clearTimeout(failsafe)
+          failsafe = 0
+        }
+      }
+
+      const hideDeleteRow = (menu) => {
+        const item = findDeleteItem(menu)
+        if (item === null) return false
+        const wrap = item.parentElement
+        if (wrap instanceof HTMLElement) wrap.style.display = 'none'
+        item.disabled = true
+        menu.setAttribute(CLAIM_ATTR, 'hidden')
+        return true
+      }
+
+      /** True when the portaled menu's fixed seat belongs to the armed row.
+       *  The surface seats on the row's ELLIPSIS BUTTON (vertically
+       *  centered), not on the row box: depending on row height its top
+       *  edge can OVERLAP the row by up to ~20px or hang just below it,
+       *  so the vertical window spans the row itself plus a short apron.
+       *  Horizontally the card stays within the row's span. */
+      const menuBelongsToArmedRow = (menu) => {
+        if (armed === null) return false
+        if (Date.now() > armed.until) {
+          disarm()
+          return false
+        }
+        if (menu.getAttribute(CLAIM_ATTR) !== null) return false
+        if (getComputedStyle(menu).visibility === 'hidden') return false
+        const rect = menu.getBoundingClientRect()
+        return rect.top >= armed.top - 40 && rect.top <= armed.bottom + 72 &&
+          rect.right > armed.left && rect.left < armed.right
+      }
+
+      const sweep = () => {
+        if (armed === null) return
+        for (const menu of document.querySelectorAll('[role="menu"]')) {
+          if (!(menu instanceof HTMLElement)) continue
+          if (!menuBelongsToArmedRow(menu)) continue
+          if (hideDeleteRow(menu)) {
+            disarm()
+            return
+          }
+        }
+      }
+
+      const armWatch = () => {
+        if (observer !== null) return
+        observer = new MutationObserver(() => sweep())
+        // childList catches the portal mount; style catches the seat fix
+        // that replaces the hidden MEASURE_STYLE first frame.
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] })
+        failsafe = setTimeout(disarm, 1200)
+      }
+
+      document.addEventListener('click', (event) => {
+        if (armed !== null) return
+        const target = event.target
+        if (!(target instanceof Element)) return
+        const row = target.closest('[data-row-key]')
+        if (row === null) return
+        const key = row.getAttribute('data-row-key') ?? ''
+        const prefix = 'workspace:'
+        if (!key.startsWith(prefix)) return
+        const id = key.slice(prefix.length)
+        if (id === '' || !defaultWorkspaceIds().has(id)) return
+        const rect = row.getBoundingClientRect()
+        armed = { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, until: Date.now() + 1000 }
+        armWatch()
+        sweep()
+      }, true)
+
+      document.__dshExtendDefaultWsHideDelete = true
+    }
+
+    // ─── Behavior 3: the default Workspace cannot be deleted ──────────────
+
+    /**
+     * Refuse deletion of the default Workspace at the client model, the one
+     * choke point every UI path (row menu, confirm dialog, shortcuts) flows
+     * through. The returned failure renders as the confirm dialog's error
+     * line; `WorkspaceController.delete` folds it into a thrown Error.
+     */
+    function guardDefaultWorkspace(ctx, t) {
+      const model = ctx.workspaces?.list
+      if (model === undefined || model.__dshExtendDefaultWsGuard === true) return
+      const original = model.delete.bind(model)
+      const patched = async (workspaceId) => {
+        const snapshot = model.getSnapshot()
+        const target = snapshot.items.find((item) => item.workspaceId === workspaceId)
+        if (target !== undefined && isDefaultWorkspaceLike(target)) {
+          return { ok: false, error: { code: 'workspace/default-locked', message: t('default.locked') } }
+        }
+        return original(workspaceId)
+      }
+      if (!installPatched(model, 'delete', patched)) {
+        console.error('workspace-suite: could not install the default-workspace delete guard')
+        return
+      }
+      model.__dshExtendDefaultWsGuard = true
+    }
+
+    // ─── Behavior 4: fold sub-workspaces into the default group ───────────
+
+    /**
+     * Patch the Workspace snapshot read so the default Workspace also
+     * accounts for everything inside its directory:
+     * - implicit Workspace records the Host adopts for sub-directories
+     *   after a restart are removed from the projection and their members
+     *   fold into the default row;
+     * - Sessions with a cwd inside the default directory that no record
+     *   accounts for (fresh random-workspace Sessions) are adopted into
+     *   the default row, so the sidebar groups them there instead of in
+     *   the Ungrouped bucket.
+     * Results cache two-level weak (Workspace snapshot → Session snapshot)
+     * so hook consumers keep stable snapshot identities between store
+     * notifications.
+     */
+    function foldDefaultSubWorkspaces(ctx) {
+      const model = ctx.workspaces?.list
+      if (model === undefined || model.__dshExtendDefaultWsFold === true) return
+      const original = model.getSnapshot.bind(model)
+      const cache = new WeakMap()
+      const noSessions = {}
+      const patched = () => {
+        const workspaceSnapshot = original()
+        let foldedForSessions
+        try {
+          foldedForSessions = cache.get(workspaceSnapshot)
+          if (foldedForSessions === undefined) {
+            foldedForSessions = new WeakMap()
+            cache.set(workspaceSnapshot, foldedForSessions)
+          }
+          let sessionsSnapshot
+          try {
+            sessionsSnapshot = ctx.sessions?.list?.getSnapshot?.()
+          } catch {
+            sessionsSnapshot = undefined
+          }
+          const sessionsKey = sessionsSnapshot ?? noSessions
+          let folded = foldedForSessions.get(sessionsKey)
+          if (folded === undefined) {
+            folded = foldSnapshot(workspaceSnapshot, sessionsSnapshot)
+            foldedForSessions.set(sessionsKey, folded)
+          }
+          return folded
+        } catch (error) {
+          console.warn('workspace-suite: workspace snapshot fold failed:', error)
+          return workspaceSnapshot
+        }
+      }
+      if (!installPatched(model, 'getSnapshot', patched)) {
+        console.error('workspace-suite: could not install the default-workspace sidebar fold')
+        return
+      }
+      model.__dshExtendDefaultWsFold = true
+    }
+
+    function foldSnapshot(snapshot, sessionsSnapshot) {
+      const items = snapshot.items
+      if (!Array.isArray(items)) return snapshot
+      const fallback = items.find((item) => isDefaultWorkspaceLike(item))
+      if (fallback === undefined) return snapshot
+      const base = fallback.path
+      const foldedIds = [...fallback.sessionIds]
+      const kept = []
+      let changed = false
+      // Fold implicit records whose directory is inside the default one.
+      for (const item of items) {
+        if (item === fallback) {
+          kept.push(item)
+          continue
+        }
+        if (isStrictlyInside(item.path, base)) {
+          for (const id of item.sessionIds) {
+            if (!foldedIds.includes(id)) foldedIds.push(id)
+          }
+          changed = true
+          continue
+        }
+        kept.push(item)
+      }
+      // Adopt loose Sessions whose cwd lives inside the default directory.
+      const accounted = new Set()
+      for (const item of items) {
+        for (const id of item.sessionIds) accounted.add(id)
+      }
+      const byId = sessionsSnapshot?.byId ?? {}
+      const ids = sessionsSnapshot?.ids ?? []
+      for (const id of ids) {
+        if (accounted.has(id)) continue
+        const summary = byId[id]
+        if (summary === undefined || summary.origin === 'subagent') continue
+        const cwd = summary.cwd
+        if (cwd === undefined || cwd === '') continue
+        if (!isStrictlyInside(cwd, base)) continue
+        foldedIds.push(id)
+        accounted.add(id)
+        changed = true
+      }
+      if (!changed) return snapshot
+      return {
+        ...snapshot,
+        items: kept.map((item) => (item === fallback ? { ...item, sessionIds: foldedIds } : item)),
+      }
+    }
+
+    // ─── Behavior 5: a random workspace per default-Workspace session ─────
+
+    /**
+     * Pick the path separator that matches the Workspace path's own spelling
+     * so the random child directory reads natively on any platform.
+     */
+    function childPathOf(workspacePath, name) {
+      const separator = String(workspacePath).includes('\\') ? '\\' : '/'
+      return `${String(workspacePath).replace(/[/\\]+$/, '')}${separator}${name}`
+    }
+
+    /**
+     * Lazy per-session random workspaces. Creating a Session in the default
+     * Workspace passes through UNCHANGED: the Session is born at the
+     * workspace root, no folder exists yet, and the shell's blank-reuse
+     * adoption keeps a single pending Session no matter how often "+" is
+     * clicked. The random `ws-xxxxxxxx` folder appears only when the
+     * Session's FIRST prompt is actually sent — every Session object the
+     * manager builds gets its `prompt` wrapped; a prompt on a still-blank
+     * Session whose cwd is the default workspace root transparently:
+     *
+     *   1. creates one fresh random folder and a new Session inside it in
+     *      one step (`sessions.create({cwd})` — the Host mkdirs the cwd
+     *      recursively, so folder and Session are born together, only now);
+     *   2. swaps the main view onto the folder Session;
+     *   3. settles the submission echo the composer registered on the root
+     *      Session as observed (the submission IS admitted — by the folder
+     *      Session — and the UI's attachment cleanup is session-agnostic),
+     *      then re-echoes the text on the folder Session so the composer
+     *      paints immediately;
+     *   4. forwards the prompt itself to the folder Session.
+     *
+     * Later prompts find `__dshExtendWsTarget` and forward directly. Any
+     * failure degrades to the original prompt in the workspace root, so a
+     * broken migration never loses a message. Subagent-addressed Sessions
+     * and Sessions already living in a subfolder are never touched.
+     */
+    function lazyRandomWorkspacePerPrompt(ctx, t) {
+      const sessions = ctx.sessions
+      const manager = sessions?.manager
+      if (manager === undefined || manager.__dshExtendDefaultWsPrompt === true) return
+
+      const defaultWorkspace = () => {
+        try {
+          return ctx.workspaces?.list?.getSnapshot?.().items.find((item) => isDefaultWorkspaceLike(item))
+        } catch {
+          return undefined
+        }
+      }
+
+      const isBlankDefaultRootSession = (session) => {
+        if (session.address !== undefined) return false
+        let summary
+        try {
+          summary = sessions.list.getSnapshot().byId[session.sessionId]
+        } catch {
+          return false
+        }
+        if (summary === undefined || summary.blank !== true) return false
+        const workspace = defaultWorkspace()
+        if (workspace === undefined) return false
+        return normalizePathForCompare(summary.cwd) === normalizePathForCompare(workspace.path)
+      }
+
+      /** Step 1+2: folder Session born, view swapped. Throws on failure. */
+      const migrate = async (session) => {
+        const workspace = defaultWorkspace()
+        if (workspace === undefined) throw new Error('default workspace is unavailable')
+        const directory = childPathOf(workspace.path, `ws-${randomHex(4)}`)
+        const sessionId = await sessions.create({ cwd: directory })
+        const target = manager.get(sessionId)
+        if (target === undefined) throw new Error(`session ${sessionId} is unavailable`)
+        try {
+          ctx.uiWorkspace?.openSession?.(sessionId)
+        } catch (error) {
+          console.warn('workspace-suite: view swap to the random workspace failed:', error)
+        }
+        return target
+      }
+
+      /** Step 3b+4: fresh echo on the folder Session, then the prompt. */
+      const forward = (target, content, mode, signal) => {
+        const text = content.filter((part) => part?.type === 'text').map((part) => part.text).join('\n')
+        const submission = target.beginSubmission({ mode, text, attachments: [] })
+        return target.prompt(content, mode, signal, submission.requestId)
+      }
+
+      const patchSessionPrompt = (session) => {
+        if (session === undefined || session.__dshExtendWsPromptPatched === true) return
+        session.__dshExtendWsPromptPatched = true
+        const original = session.prompt.bind(session)
+        session.prompt = async (content, mode, signal, requestId) => {
+          if (session.__dshExtendWsTarget !== undefined) {
+            return forward(session.__dshExtendWsTarget, content, mode, signal)
+          }
+          if (session.__dshExtendWsMigration !== undefined) {
+            // A concurrent prompt is already migrating this Session: wait
+            // for the same folder Session instead of making a second one.
+            try {
+              const target = await session.__dshExtendWsMigration
+              return forward(target, content, mode, signal)
+            } catch {
+              return original(content, mode, signal, requestId)
+            }
+          }
+          if (!isBlankDefaultRootSession(session)) return original(content, mode, signal, requestId)
+          session.__dshExtendWsMigration = (async () => {
+            const target = await migrate(session)
+            session.__dshExtendWsTarget = target
+            return target
+          })()
+          let target
+          try {
+            target = await session.__dshExtendWsMigration
+          } catch (error) {
+            session.__dshExtendWsMigration = undefined
+            console.warn(`workspace-suite: ${t('default.createFailed')}:`, error)
+            return original(content, mode, signal, requestId)
+          }
+          // Step 3a: retire the root Session's echo as observed.
+          if (requestId !== undefined) {
+            try {
+              session.finishSubmission?.(requestId, { reason: 'observed', attachments: [] })
+            } catch {
+              /* best effort: a stale echo beats a lost message */
+            }
+          }
+          return forward(target, content, mode, signal)
+        }
+      }
+
+      const originalCreateSession = manager.createSession.bind(manager)
+      const patchedCreateSession = (sessionId) => {
+        const session = originalCreateSession(sessionId)
+        try {
+          patchSessionPrompt(session)
+        } catch (error) {
+          console.warn('workspace-suite: prompt interception unavailable:', error)
+        }
+        return session
+      }
+      if (!installPatched(manager, 'createSession', patchedCreateSession)) {
+        console.error('workspace-suite: could not install the lazy random-workspace prompt patch')
+        return
+      }
+      manager.__dshExtendDefaultWsPrompt = true
+    }
+
+    // ─── Plugin entry ─────────────────────────────────────────────────────
+
+    return {
+      inject: ['locale', 'workspaces', 'sessions'],
+      apply(ctx) {
+        ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workspace-suite: dictionaries')
+        let t
+        try {
+          t = ctx.locale.bind(NS)
+        } catch {
+          t = (key) => key
+        }
+        for (const install of [hideDefaultWorkspaceActions, hideDefaultWorkspaceDelete, guardDefaultWorkspace, foldDefaultSubWorkspaces, lazyRandomWorkspacePerPrompt]) {
+          try {
+            install(ctx, t)
+          } catch (error) {
+            console.warn(`workspace-suite: ${install.name} unavailable:`, error)
+          }
+        }
+      },
+    }
+  },
+})
+
 // ─── Composition ────────────────────────────────────────────────────────────
 //
 // The shell activates the module whose id equals this package's name. It
-// requires the three feature modules registered above out of the module table
+// requires the four feature modules registered above out of the module table
 // (each a verbatim copy of its standalone package's browser half) and applies
 // them one by one on the same context. The inject list is the union of the
-// three, so the suite activates with the full shell exactly as the separate
+// four, so the suite activates with the full shell exactly as the separate
 // packages did.
 
 window.__ModuleLoader__.load({
@@ -5346,6 +6995,8 @@ window.__ModuleLoader__.load({
       require('@qwqweeo123/dsh-extend/open-in-app'),
       require('@qwqweeo123/dsh-extend/pet'),
       require('@qwqweeo123/dsh-extend/wallpaper'),
+      require('@qwqweeo123/dsh-extend/tabbar'),
+      require('@qwqweeo123/dsh-extend/workspace-suite'),
     ]
     const inject = [...new Set(parts.flatMap((part) => part.inject || []))]
     return {

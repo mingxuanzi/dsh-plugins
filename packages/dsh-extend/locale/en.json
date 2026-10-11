@@ -1,4 +1,4 @@
 {
   "title": "Extend Suite",
-  "description": "Three plugins in one bundle: a desktop pet in a transparent always-on-top window reacting to agent state (codex-pets.net marketplace), a global wallpaper from wallhaven.cc or a local image, and the Session-header Open In… button with the desktop-build fixes."
+  "description": "Four plugins in one bundle: a desktop pet in a transparent always-on-top window reacting to agent state (codex-pets.net marketplace), a global wallpaper from wallhaven.cc or a local image, the Session-header Open In… button with the desktop-build fixes, and a codeg-style session tab bar with drag reordering and a new-session button in the conversation header."
 }

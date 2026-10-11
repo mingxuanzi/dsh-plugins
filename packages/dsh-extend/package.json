@@ -1,12 +1,12 @@
 {
   "name": "@qwqweeo123/dsh-extend",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "type": "module",
-  "description": "Three plugins in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), and the Session-header Open In… button with the desktop-build fixes.",
+  "description": "Six features in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), the Session-header Open In… button with the desktop-build fixes, a codeg-style global session tab bar seated in the window caption (new tabs always land at the end), a Default Workspace Suite (the default workspace cannot be deleted — its row never renders the actions menu — and a session's random ws-xxxxxxxx workspace folder is created lazily, only when its first message is sent), and Window State (the desktop window's size, position and maximized flag are remembered across launches).",
   "icon": "./icon.svg",
   "meta": {
     "title": "Extend Suite",
-    "description": "Three plugins in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), and the Session-header Open In… button with the desktop-build fixes."
+    "description": "Six features in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), the Session-header Open In… button with the desktop-build fixes, a codeg-style global session tab bar seated in the window caption (new tabs always land at the end), a Default Workspace Suite (the default workspace cannot be deleted — its row never renders the actions menu — and a session's random ws-xxxxxxxx workspace folder is created lazily, only when its first message is sent), and Window State (the desktop window's size, position and maximized flag are remembered across launches)."
   },
   "exports": {
     ".": "./index.js",
@@ -19,6 +19,7 @@
     "client.js",
     "pet.js",
     "wallpaper.js",
+    "window-state.js",
     "cordis.patch.yml",
     "icon.svg",
     "locale",
@@ -50,14 +51,15 @@
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-client-ui-settings-general",
-        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     },
     "catalog": {
       "category": "ui",
       "summary": {
-        "en": "Three plugins in one: a desktop pet in an always-on-top window (codex-pets.net market), a global wallpaper (wallhaven.cc or local image), and the Open In… button with desktop-build fixes.",
-        "zh": "三合一扩展包：独立置顶小窗里的桌面宠物（内置 codex-pets.net 市场）、全局壁纸（wallhaven.cc 或本地图片）、以及带桌面端修复的 Open In… 按钮。"
+        "en": "Six-in-one suite: a desktop pet in an always-on-top window (codex-pets.net market), a global wallpaper (wallhaven.cc or local image), the Open In… button with desktop-build fixes, a codeg-style session tab bar in the window caption, a Default Workspace Suite (default workspace undeletable — no actions menu — and each session's random workspace folder created only when its first message is sent), plus window size and maximized state restored across launches (Windows desktop).",
+        "zh": "六合一扩展包：独立置顶小窗里的桌面宠物（内置 codex-pets.net 市场）、全局壁纸（wallhaven.cc 或本地图片）、带桌面端修复的 Open In… 按钮、窗口标题栏的 codeg 风格全局会话标签栏、默认工作区套件（默认工作区不可删除且无操作菜单；会话的随机工作区文件夹在发出第一条消息时才创建），以及窗口大小与最大化状态跨启动记忆（Windows 桌面端）。"
       },
       "capabilities": [
         "webServer",
@@ -78,6 +80,10 @@
     "open-in-app",
     "editor",
     "terminal",
+    "tabs",
+    "tab-bar",
+    "workspace",
+    "window-state",
     "suite"
   ],
   "license": "MIT",

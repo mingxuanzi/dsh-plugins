@@ -1,5 +1,5 @@
 /**
- * Host half of @qwqweeo123/dsh-extend — one bundle carrying three features
+ * Host half of @qwqweeo123/dsh-extend — one bundle carrying four features
  * that used to ship as three separate packages:
  *
  *   - Open In…   (was @qwqweeo123/dsh-open-in-app): the Session-header split
@@ -13,18 +13,23 @@
  *   - Wallpaper  (was @qwqweeo123/dsh-wallpaper): same-origin /dsh-wallpaper/*
  *     routes — the wallhaven.cc proxy, the validated wallpaper store and the
  *     download library.
+ *   - Window State: remembers the desktop shell's primary-window geometry
+ *     (maximized flag + normal bounds) across launches via a Win32
+ *     WINDOWPLACEMENT watcher, and re-applies it at boot.
  *
  * Every feature keeps the service gating its standalone package had, so a
  * profile missing one feature's services still gets the rest: the pet and
  * wallpaper halves subscribe to the optional `webServer` themselves, and
  * Open In… mounts through `ctx.inject` exactly where its standalone package
  * declared a static `inject` — on a profile without webServer/connection/
- * subprocess (pure browser shell) that half simply never starts.
+ * subprocess (pure browser shell) that half simply never starts. Window
+ * State needs nothing but `subprocess` and the Windows desktop shell.
  */
 
 import { Config, inject as openInAppInject, apply as openInApp } from './vendor/open-in-app-host.js'
 import { apply as pet } from './pet.js'
 import { apply as wallpaper } from './wallpaper.js'
+import { windowState } from './window-state.js'
 
 /** Cordis function-plugin name; the bundle patch mounts it as `dsh-extend`. */
 export const name = 'dsh-extend'
@@ -48,4 +53,5 @@ export function apply(ctx, config) {
   ctx.inject(openInAppInject, (featureCtx) => openInApp(featureCtx, config))
   pet(ctx)
   wallpaper(ctx)
+  windowState(ctx)
 }
