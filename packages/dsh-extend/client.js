@@ -6919,11 +6919,25 @@ window.__ModuleLoader__.load({
         return target
       }
 
-      /** Step 3b+4: fresh echo on the folder Session, then the prompt. */
+      /**
+       * Step 3b+4: fresh echo on the folder Session, then the prompt.
+       *
+       * The caller's signal is deliberately NOT forwarded to the folder
+       * Session: it belongs to the originating composer's submit attempt,
+       * whose AbortController fires the moment the migration's own view
+       * swap (openSession → replaceMain) disposes that composer — the
+       * shell's release aborts every detached send it still tracks.
+       * Relaying that signal would abort the folder Session's admission
+       * round-trip mid-flight, surfacing `session/prompt was aborted
+       * (gateway/cancelled)` on exactly the first message of every
+       * default-Workspace Session. The admission round-trip is short and
+       * has no user-facing cancel affordance once the composer is gone,
+       * so the forwarded prompt runs uncancelled instead.
+       */
       const forward = (target, content, mode, signal) => {
         const text = content.filter((part) => part?.type === 'text').map((part) => part.text).join('\n')
         const submission = target.beginSubmission({ mode, text, attachments: [] })
-        return target.prompt(content, mode, signal, submission.requestId)
+        return target.prompt(content, mode, undefined, submission.requestId)
       }
 
       const patchSessionPrompt = (session) => {

@@ -1,6 +1,6 @@
 {
   "name": "@qwqweeo123/dsh-extend",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "type": "module",
   "description": "Six features in one bundle: a desktop pet in its own transparent always-on-top window (codex-pets.net marketplace), a global wallpaper (wallhaven.cc marketplace or a local image), the Session-header Open In… button with the desktop-build fixes, a codeg-style global session tab bar seated in the window caption (new tabs always land at the end), a Default Workspace Suite (the default workspace cannot be deleted — its row never renders the actions menu — and a session's random ws-xxxxxxxx workspace folder is created lazily, only when its first message is sent), and Window State (the desktop window's size, position and maximized flag are remembered across launches).",
   "icon": "./icon.svg",
